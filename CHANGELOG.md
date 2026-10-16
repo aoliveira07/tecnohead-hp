@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.0.1] - 2026-10-16
+
+- Adicionada validação CI dos testes, sintaxe e build do container.
+
 ## [1.0.0] - 2026-10-16
 
 - Primeira versão do App TecnoHead HP.
