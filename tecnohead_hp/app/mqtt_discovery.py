@@ -136,7 +136,20 @@ def _supervisor_mqtt() -> dict[str, Any] | None:
     try:
         with urlopen(request, timeout=2.0) as response:
             body = json.loads(response.read().decode("utf-8"))
-            return body if isinstance(body, dict) else None
+            # Supervisor services return the service description under
+            # ``data``. Accept the direct shape as well for compatibility
+            # with development stubs and older Supervisor versions.
+            data = body.get("data") if isinstance(body, dict) else None
+            connection = data if isinstance(data, dict) else body
+            if not isinstance(connection, dict) or not connection.get("host"):
+                return None
+            return {
+                "host": connection["host"],
+                "port": int(connection.get("port", 1883)),
+                "username": connection.get("username", ""),
+                "password": connection.get("password", ""),
+                "ssl": bool(connection.get("ssl", False)),
+            }
     except Exception:
         return None
 
@@ -224,7 +237,11 @@ class MqttPublisher:
         if not connection:
             return False, "Nenhum broker MQTT foi descoberto ou configurado."
         try:
-            with socket.create_connection((connection["host"], int(connection["port"])), timeout=3.0):
+            host = connection.get("host")
+            port = connection.get("port")
+            if not host or not port:
+                return False, "Dados do broker MQTT incompletos."
+            with socket.create_connection((str(host), int(port)), timeout=3.0):
                 pass
             return True, "TCP do broker MQTT respondeu; autenticação será validada na publicação."
         except OSError as exc:

@@ -1,6 +1,7 @@
 import unittest
+from unittest.mock import patch
 
-from mqtt_discovery import BASE_TOPIC, DEVICE_ID, build_discovery_payloads
+from mqtt_discovery import BASE_TOPIC, DEVICE_ID, _supervisor_mqtt, build_discovery_payloads
 
 
 class DiscoveryTests(unittest.TestCase):
@@ -16,6 +17,25 @@ class DiscoveryTests(unittest.TestCase):
 
     def test_no_entities_before_configuration(self):
         self.assertEqual(build_discovery_payloads({"configured": False}), {})
+
+    @patch.dict("os.environ", {"SUPERVISOR_TOKEN": "token"}, clear=False)
+    @patch("mqtt_discovery.urlopen")
+    def test_supervisor_mqtt_unwraps_data(self, urlopen):
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self):
+                return b'{"data":{"host":"core-mosquitto","port":1883,"ssl":false,"username":"ha","password":"secret"}}'
+
+        urlopen.return_value = Response()
+        self.assertEqual(
+            _supervisor_mqtt(),
+            {"host": "core-mosquitto", "port": 1883, "ssl": False, "username": "ha", "password": "secret"},
+        )
 
 
 def json_text(value):
