@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from mqtt_discovery import BASE_TOPIC, DEVICE_ID, _supervisor_mqtt, build_discovery_payloads
+from mqtt_discovery import BASE_TOPIC, DEVICE_ID, MqttPublisher, _supervisor_mqtt, build_discovery_payloads
 
 
 class DiscoveryTests(unittest.TestCase):
@@ -36,6 +36,18 @@ class DiscoveryTests(unittest.TestCase):
             _supervisor_mqtt(),
             {"host": "core-mosquitto", "port": 1883, "ssl": False, "username": "ha", "password": "secret"},
         )
+
+    def test_mqtt_v2_reason_code_is_handled(self):
+        publisher = MqttPublisher(lambda: {})
+
+        class ReasonCode:
+            value = 0
+
+            def __int__(self):
+                raise TypeError("paho v2 reason codes are not directly int-convertible")
+
+        publisher._on_connect(None, None, None, ReasonCode())
+        self.assertTrue(publisher.connected)
 
 
 def json_text(value):

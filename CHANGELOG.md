@@ -1,9 +1,10 @@
 # Changelog
 
-## [1.0.4] - 2026-10-16
+## [1.0.5] - 2026-10-16
 
 - Corrigida a descoberta automática do broker MQTT pelo Supervisor, que retorna os dados dentro de `data`.
 - Testes MQTT agora tratam respostas incompletas sem gerar erro interno no painel.
+- Compatibilizado o callback de conexão com os `ReasonCode` do paho-mqtt atual.
 
 ## [1.0.3] - 2026-10-16
 

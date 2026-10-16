@@ -199,7 +199,13 @@ class MqttPublisher:
         return client
 
     def _on_connect(self, _client: Any, _userdata: Any, _flags: Any, reason_code: Any, *_extra: Any) -> None:
-        self._connected = int(reason_code) == 0
+        try:
+            code = int(reason_code)
+        except (TypeError, ValueError):
+            code = getattr(reason_code, "value", None)
+            if code is None:
+                code = 0 if str(reason_code).lower() in {"success", "0"} else 1
+        self._connected = code == 0
 
     def _on_disconnect(self, _client: Any, _userdata: Any, _flags: Any = None, _reason_code: Any = None, *_extra: Any) -> None:
         self._connected = False
