@@ -16,7 +16,7 @@
 | Erros | `hrPrinterDetectedErrorState.1` preservado como bits/raw | Pendente de interpretação física |
 | Consumíveis | Descoberta dinâmica por tipo, descrição, unidade, capacidade, nível e cor | Cinco itens observados em dump público, não nesta unidade |
 | MQTT Discovery | Device estável, entidades de leitura e disponibilidade | Implementado; requer broker/HA |
-| Reboot | Pré-verificação GET + teste único `powerCycleReset(4)`; sem retry e sem reset destrutivo | OID não confirmado na unidade real; nenhum SET enviado |
+| Reboot | Teste normal com pré-verificação GET e teste forçado opcional de uma única solicitação fixa `powerCycleReset(4)`; sem retry e sem reset destrutivo | OID não confirmado na unidade real; modo forçado ainda não executado |
 | Wake | Nenhum botão; nenhum pacote presumido | Não homologado |
 
 ## OIDs consultados em modo somente leitura
@@ -36,4 +36,4 @@
 2. Testar SNMPv1 e EWS a partir do Home Assistant.
 3. Confirmar estrutura real da página EWS e anonimizar fixtures.
 4. Confirmar entidade e disponibilidade no MQTT Discovery.
-5. O painel agora oferece a porta de homologação supervisionada: somente após autorização explícita, comunidade de escrita separada, GET positivo do OID e estado ocioso poderá enviar uma única solicitação `powerCycleReset(4)`; sem confirmação, nenhum SET é emitido.
+5. O painel oferece duas portas de homologação: a normal exige GET positivo; a forçada ignora somente essa pré-validação e envia uma única solicitação fixa `powerCycleReset(4)`, com comunidade de escrita separada, autorização explícita, estado ocioso, cooldown e sem retry. Nenhum OID/valor arbitrário é aceito.

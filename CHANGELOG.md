@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.0.10] - 2026-10-16
+
+- Adicionado botão de homologação forçada para enviar uma única solicitação fixa `powerCycleReset(4)` sem pré-validar a presença do OID.
+- O modo forçado não aceita OIDs/valores arbitrários, não aguarda confirmação e não repete o envio; o resultado deve ser observado pelo retorno e pelo tempo de atividade.
+
 ## [1.0.9] - 2026-10-16
 
 - Adicionada homologação supervisionada do `powerCycleReset(4)` via Printer-MIB.

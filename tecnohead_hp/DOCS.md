@@ -12,7 +12,7 @@
 
 O primeiro carregamento mostra `Aguardando configuração da impressora`, com o IP vazio. Preencha o endereço, a comunidade SNMP e, se necessário, host/porta/credenciais MQTT. O campo de IP sempre permanece editável, mesmo quando a impressora está offline.
 
-Os botões de diagnóstico fazem somente leituras: SNMP GET/WALK, GET HTTP/EWS e publicação de uma mensagem de teste no broker. O botão de homologação do reboot só é habilitado após autorização salva e confirmação do `prtGeneralReset` por GET; nesse caso envia exatamente uma solicitação `powerCycleReset(4)`, sem retry. Se o GET retornar `No Such Name`, nenhum `SNMP SET` é enviado.
+Os botões de diagnóstico fazem somente leituras: SNMP GET/WALK, GET HTTP/EWS e publicação de uma mensagem de teste no broker. O teste normal do reboot exige autorização salva e confirmação do `prtGeneralReset` por GET. O botão separado de envio forçado ignora somente essa confirmação e envia exatamente uma solicitação fixa `powerCycleReset(4)`, sem aguardar resposta posterior e sem retry. O app não aceita OID/valor arbitrário, reset de NVRAM ou reset de fábrica.
 
 ## Entidades MQTT
 
@@ -33,4 +33,4 @@ O diretório `/data` é persistente e deve entrar no backup do Home Assistant. A
 
 ## Limitações homologadas
 
-Na unidade real atual, o OID `prtGeneralReset` não foi confirmado por GET, portanto a porta de homologação permanece bloqueada e nenhum SET foi enviado. Se um firmware confirmar o objeto no futuro, o teste ainda deverá ocorrer com a impressora ociosa e acesso físico disponível. Wake-on-LAN não é presumido.
+Na unidade real atual, o OID `prtGeneralReset` não foi confirmado por GET, portanto o teste normal permanece bloqueado. O teste forçado pode ser usado com acesso físico disponível, comunidade SNMP de escrita e autorização salva; ele não garante que o firmware aceite o comando. Wake-on-LAN não é presumido.

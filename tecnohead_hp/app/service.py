@@ -138,6 +138,87 @@ class MonitorService:
         ok, message = self.mqtt.test()
         return {"ok": ok, "message": message}
 
+    def _claim_reset_slot(self) -> dict[str, Any] | None:
+        with self._lock:
+            if self._last_reset_command_at is not None:
+                elapsed = time.monotonic() - self._last_reset_command_at
+                if elapsed < 600:
+                    remaining = max(1, int(600 - elapsed))
+                    return {
+                        "ok": False,
+                        "status": "cooldown",
+                        "command_sent": False,
+                        "message": f"Aguarde {remaining} segundos antes de uma nova tentativa; o último envio pode ter reiniciado a impressora.",
+                    }
+            self._last_reset_command_at = time.monotonic()
+        return None
+
+    def _release_reset_slot(self) -> None:
+        with self._lock:
+            self._last_reset_command_at = None
+
+    def _force_reboot(self, config: dict[str, Any]) -> dict[str, Any]:
+        """Send the fixed power-cycle request without the optional-OID probe."""
+
+        if not config.get("snmp_write_community"):
+            return {"ok": False, "status": "blocked", "command_sent": False, "message": "Configure a comunidade SNMPv1 de escrita somente para o teste forçado."}
+        current = self.status()
+        if not current.get("online"):
+            return {"ok": False, "status": "blocked", "command_sent": False, "message": "A impressora não está online para o teste forçado."}
+        if current.get("state") in {"printing", "warmup", "error", "unknown"}:
+            return {"ok": False, "status": "blocked", "command_sent": False, "message": f"Teste forçado bloqueado no estado atual: {current.get('state_label', 'desconhecido')}."}
+        cooldown = self._claim_reset_slot()
+        if cooldown:
+            return cooldown
+
+        write_client = SnmpV1Client(
+            config["ip"],
+            config["snmp_write_community"],
+            config["snmp_port"],
+            config["snmp_timeout"],
+            retries=1,
+        )
+        command_sent = False
+        request_error: str | None = None
+        response_values = []
+        try:
+            response_values = write_client.power_cycle_reset()
+            command_sent = True
+        except SnmpCommandError as exc:
+            command_sent = exc.command_sent
+            request_error = str(exc)
+        except SnmpError as exc:
+            request_error = str(exc)
+
+        if not command_sent:
+            self._release_reset_slot()
+            self._log(f"Teste forçado de reboot não enviado: {request_error or 'falha antes do envio'}")
+            return {"ok": False, "status": "send_failed", "command_sent": False, "message": "O comando forçado não foi enviado à impressora.", "detail": request_error}
+
+        response_ack = bool(
+            response_values
+            and response_values[0].oid == PRT_GENERAL_RESET_OID
+            and response_values[0].tag == 0x02
+            and response_values[0].value == POWER_CYCLE_RESET_VALUE
+        )
+        self._log("Teste forçado enviado uma única vez: powerCycleReset(4); confirmação posterior não foi aguardada.")
+        if response_ack:
+            return {
+                "ok": True,
+                "status": "sent",
+                "command_sent": True,
+                "message": "powerCycleReset(4) enviado uma única vez. Atualize o painel depois que a impressora retornar para verificar o tempo de atividade.",
+                "response_ack": True,
+            }
+        return {
+            "ok": False,
+            "status": "sent_inconclusive",
+            "command_sent": True,
+            "message": "O pacote foi enviado uma única vez, mas a impressora não confirmou a resposta. Não haverá retry; verifique o retorno e o tempo de atividade.",
+            "response_ack": False,
+            "request_error": request_error,
+        }
+
     def _verify_reset(self, client: SnmpV1Client, previous_uptime: float | None) -> dict[str, Any]:
         """Observe the printer after a one-shot command using GET only."""
 
@@ -169,7 +250,7 @@ class MonitorService:
             "uptime_after": last_uptime,
         }
 
-    def test_reboot(self) -> dict[str, Any]:
+    def test_reboot(self, *, force: bool = False) -> dict[str, Any]:
         """Run the supervised, one-shot Printer-MIB power-cycle test."""
 
         config = self.store.get()
@@ -177,6 +258,8 @@ class MonitorService:
             return {"ok": False, "status": "blocked", "command_sent": False, "message": "IP da impressora não configurado."}
         if not config.get("allow_reset_test"):
             return {"ok": False, "status": "blocked", "command_sent": False, "message": "O teste de reboot SNMP está desabilitado nas configurações."}
+        if force:
+            return self._force_reboot(config)
         if not config.get("snmp_community"):
             return {"ok": False, "status": "blocked", "command_sent": False, "message": "Configure a comunidade SNMPv1 de leitura para fazer a pré-verificação."}
 
@@ -227,18 +310,9 @@ class MonitorService:
         if before.state in {"printing", "warmup", "error", "unknown"}:
             return {"ok": False, "status": "blocked", "command_sent": False, "message": f"Teste bloqueado no estado atual: {before.state_label}."}
 
-        with self._lock:
-            if self._last_reset_command_at is not None:
-                elapsed = time.monotonic() - self._last_reset_command_at
-                if elapsed < 600:
-                    remaining = max(1, int(600 - elapsed))
-                    return {
-                        "ok": False,
-                        "status": "cooldown",
-                        "command_sent": False,
-                        "message": f"Aguarde {remaining} segundos antes de uma nova tentativa; o último envio pode ter reiniciado a impressora.",
-                    }
-            self._last_reset_command_at = time.monotonic()
+        cooldown = self._claim_reset_slot()
+        if cooldown:
+            return cooldown
 
         write_client = SnmpV1Client(
             config["ip"],
@@ -260,8 +334,7 @@ class MonitorService:
             request_error = str(exc)
 
         if not command_sent:
-            with self._lock:
-                self._last_reset_command_at = None
+            self._release_reset_slot()
             self._log(f"Homologação de reboot não enviada: {request_error or 'falha antes do envio'}")
             return {"ok": False, "status": "send_failed", "command_sent": False, "message": "O comando não foi enviado à impressora.", "detail": request_error}
 

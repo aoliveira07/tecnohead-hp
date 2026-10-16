@@ -4,6 +4,6 @@ O **TecnoHead HP** é um App para Home Assistant OS, não uma integração HACS.
 
 O endereço IP não é codificado nem exigido na instalação. Abra o painel Ingress, preencha **Endereço IP da impressora**, salve e teste. A alteração de IP interrompe a coleta antiga, descarta o estado volátil anterior e mantém os mesmos identificadores MQTT.
 
-Nenhum comando de escrita é enviado durante inicialização, descoberta, teste de conexão, atualização ou troca de IP. O painel contém uma porta de homologação manual para `powerCycleReset(4)`: ela exige comunidade SNMP de escrita separada, autorização salva, GET positivo do `prtGeneralReset` e estado ocioso. O envio é único e não tem retry; o botão não fica funcional quando o OID não é confirmado. `Acordar` continua indisponível.
+Nenhum comando de escrita é enviado durante inicialização, descoberta, teste de conexão, atualização ou troca de IP. O painel contém uma porta normal e outra forçada para homologação manual de `powerCycleReset(4)`: ambas exigem comunidade SNMP de escrita separada, autorização salva e estado ocioso; a porta normal exige GET positivo do `prtGeneralReset`, enquanto a forçada ignora somente essa validação. O envio é único e não tem retry; `Acordar` continua indisponível.
 
 O painel e o MQTT Discovery exibem o `sysUpTime.0` como **Tempo de atividade**, isto é, o tempo desde a última inicialização observada do sistema de gerenciamento da impressora.

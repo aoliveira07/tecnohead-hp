@@ -20,7 +20,7 @@ O App não exige edição de `configuration.yaml`, não depende de Wi-Fi ou nuve
 - EWS: GET somente leitura da página principal, com indicação de fonte e disponibilidade.
 - MQTT Discovery: dispositivo único com identificadores estáveis e disponibilidade separada do App.
 - IP vazio: painel funcional, monitoramento suspenso e nenhuma entidade de impressora criada.
-- Reboot: teste manual e supervisionado, bloqueado se `prtGeneralReset` não responder por GET; nenhum retry e nenhum reset destrutivo.
+- Reboot: teste manual normal e botão forçado opcional, sempre limitado a `powerCycleReset(4)`, sem retry e sem reset destrutivo.
 - Wake: indisponível; Wake-on-LAN não é presumido.
 
 Leia [`tecnohead_hp/README.md`](tecnohead_hp/README.md), [`tecnohead_hp/DOCS.md`](tecnohead_hp/DOCS.md) e [`docs/RELATORIO_CAPACIDADES.md`](docs/RELATORIO_CAPACIDADES.md) para detalhes, segurança, rollback e limitações.
