@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.0.3] - 2026-10-16
+
+- Corrigida a expressão regular do caminho relativo da API do Ingress; o JavaScript do formulário volta a carregar e impedir o envio GET acidental.
+
 ## [1.0.2] - 2026-10-16
 
 - Corrigida a API do painel Ingress para usar caminhos relativos; o painel não tenta mais acessar `/api/*` na raiz do Home Assistant.

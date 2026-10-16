@@ -1,6 +1,6 @@
 FROM ghcr.io/home-assistant/base:latest
 
-ARG BUILD_VERSION=1.0.2
+ARG BUILD_VERSION=1.0.3
 
 RUN apk add --no-cache python3 py3-pip \
     && python3 -m venv /opt/venv \
