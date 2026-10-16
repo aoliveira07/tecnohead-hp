@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Testes unitários
+        run: python -m unittest discover -s tests -t . -v
+      - name: Verificar sintaxe
+        run: python -m compileall -q tecnohead_hp/app
+
+  container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validar build do App
+        uses: docker/build-push-action@v6
+        with:
+          context: tecnohead_hp
+          file: tecnohead_hp/Dockerfile
+          platforms: linux/amd64
+          push: false
+          tags: tecnohead-hp:ci
