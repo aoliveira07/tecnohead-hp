@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.0.6] - 2026-10-16
+
+- Isoladas as consultas SNMP para que um OID opcional não interrompa toda a leitura.
+- Tabelas SNMP não suportadas pelo firmware agora são tratadas como indisponíveis.
+
 ## [1.0.5] - 2026-10-16
 
 - Corrigida a descoberta automática do broker MQTT pelo Supervisor, que retorna os dados dentro de `data`.

@@ -1,5 +1,5 @@
 name: "TecnoHead HP"
-version: "1.0.5"
+version: "1.0.6"
 slug: "tecnohead_hp"
 description: >-
   Monitoramento local da HP Color LaserJet Pro MFP M176n por SNMPv1/EWS,

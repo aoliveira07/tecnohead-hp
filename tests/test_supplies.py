@@ -32,6 +32,22 @@ class FakeClient:
         return [SnmpValue(f"{base}.{index}", 0x02 if isinstance(value, int) else 0x04, value) for index, value in self.rows.get(base, [])]
 
 
+class PartialClient(FakeClient):
+    def get_many(self, oids):
+        if oids == [printer_state.OID_MODEL]:
+            from snmp_client import SnmpError
+
+            raise SnmpError("SNMP error-status=2")
+        return {oid: self.scalars[oid] for oid in oids if oid in self.scalars}
+
+    def walk(self, base):
+        if base == printer_state.SUPPLIES_BASE + ".5.1":
+            from snmp_client import SnmpError
+
+            raise SnmpError("SNMP error-status=2")
+        return super().walk(base)
+
+
 class SupplyTests(unittest.TestCase):
     def test_dynamic_supply_mapping(self):
         config = {"ip": "192.168.1.20", "snmp_community": "ro", "snmp_port": 161, "snmp_timeout": 1, "snmp_retries": 1, "use_ews": False}
@@ -41,6 +57,14 @@ class SupplyTests(unittest.TestCase):
         self.assertEqual(set(result.supplies), {"preto", "ciano", "magenta", "amarelo", "cilindro_imagem"})
         self.assertEqual(result.supplies["preto"]["percent"], 80)
         self.assertEqual(result.uptime_seconds, 120)
+
+    def test_unsupported_optional_oid_does_not_abort_collection(self):
+        config = {"ip": "192.168.1.20", "snmp_community": "ro", "snmp_port": 161, "snmp_timeout": 1, "snmp_retries": 1, "use_ews": False}
+        with patch.object(printer_state, "SnmpV1Client", PartialClient):
+            result = printer_state.collect(config)
+        self.assertTrue(result.online)
+        self.assertIsNone(result.model)
+        self.assertIn("preto", result.supplies)
 
 
 if __name__ == "__main__":

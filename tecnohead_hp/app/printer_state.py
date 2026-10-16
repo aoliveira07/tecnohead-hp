@@ -124,6 +124,27 @@ def _percent(level: Any, maximum: Any, unit: Any) -> float | None:
     return None
 
 
+def _safe_get_many(client: SnmpV1Client, oids: list[str]) -> dict[str, SnmpValue]:
+    """Read scalar OIDs independently so one unsupported OID cannot abort all data."""
+
+    values: dict[str, SnmpValue] = {}
+    for oid in oids:
+        try:
+            values.update(client.get_many([oid]))
+        except SnmpError:
+            continue
+    return values
+
+
+def _safe_walk(client: SnmpV1Client, base_oid: str) -> list[SnmpValue]:
+    """Treat an unsupported optional table as unavailable, not as a total failure."""
+
+    try:
+        return client.walk(base_oid)
+    except SnmpError:
+        return []
+
+
 def collect(config: dict[str, Any]) -> CollectionResult:
     result = CollectionResult(collected_at=dt.datetime.now(dt.timezone.utc).isoformat())
     client = None
@@ -139,7 +160,9 @@ def collect(config: dict[str, Any]) -> CollectionResult:
         if client is None:
             raise SnmpError("Comunidade SNMPv1 não configurada.")
         scalar_oids = [OID_NAME, OID_UPTIME, OID_MODEL, OID_GENERAL_STATUS, OID_PRINTER_STATUS, OID_ERROR_FLAGS, OID_RESET_CANDIDATE]
-        scalars = client.get_many(scalar_oids)
+        scalars = _safe_get_many(client, scalar_oids)
+        if not scalars:
+            raise SnmpError("SNMPv1 não retornou dados de estado.")
         result.name = _value(scalars, OID_NAME)
         result.model = _value(scalars, OID_MODEL)
         result.uptime_seconds = ticks_to_seconds(_value(scalars, OID_UPTIME))
@@ -153,10 +176,10 @@ def collect(config: dict[str, Any]) -> CollectionResult:
         result.reset_oid_present = OID_RESET_CANDIDATE in scalars and not scalars[OID_RESET_CANDIDATE].is_missing
         result.sources.update({"name": "SNMP", "model": "SNMP", "state": "SNMP", "uptime": "SNMP", "errors": "SNMP"})
 
-        colorants = {_last_index(item.oid): str(item.value) for item in client.walk(COLORANT_DESC_BASE)}
+        colorants = {_last_index(item.oid): str(item.value) for item in _safe_walk(client, COLORANT_DESC_BASE)}
         columns: dict[str, dict[str, SnmpValue]] = {}
         for key, base in SUPPLY_COLUMNS.items():
-            for item in client.walk(base):
+            for item in _safe_walk(client, base):
                 columns.setdefault(_last_index(item.oid), {})[key] = item
         for index, row in columns.items():
             description = str(row.get("description").value if row.get("description") else "")
