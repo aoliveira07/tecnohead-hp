@@ -124,6 +124,16 @@ def _percent(level: Any, maximum: Any, unit: Any) -> float | None:
     return None
 
 
+def _normalize_error_flags(value: Any) -> Any:
+    """Normalize HP's zero-filled OCTET STRING error flag response."""
+
+    if isinstance(value, (bytes, bytearray)):
+        return 0 if not any(value) else int.from_bytes(value, "big")
+    if isinstance(value, str) and value and not any(ord(char) for char in value):
+        return 0
+    return value
+
+
 def _safe_get_many(client: SnmpV1Client, oids: list[str]) -> dict[str, SnmpValue]:
     """Read scalar OIDs independently so one unsupported OID cannot abort all data."""
 
@@ -166,7 +176,7 @@ def collect(config: dict[str, Any]) -> CollectionResult:
         result.name = _value(scalars, OID_NAME)
         result.model = _value(scalars, OID_MODEL)
         result.uptime_seconds = ticks_to_seconds(_value(scalars, OID_UPTIME))
-        result.error_flags = _value(scalars, OID_ERROR_FLAGS)
+        result.error_flags = _normalize_error_flags(_value(scalars, OID_ERROR_FLAGS))
         status = _value(scalars, OID_PRINTER_STATUS)
         if isinstance(status, int):
             result.state, result.state_label = PRINTER_STATES.get(status, ("unknown", f"Código {status}"))

@@ -12,7 +12,7 @@ class FakeClient:
             printer_state.OID_UPTIME: SnmpValue(printer_state.OID_UPTIME, 0x43, 12000),
             printer_state.OID_MODEL: SnmpValue(printer_state.OID_MODEL, 0x04, "HP Color LaserJet Pro MFP M176n"),
             printer_state.OID_PRINTER_STATUS: SnmpValue(printer_state.OID_PRINTER_STATUS, 0x02, 3),
-            printer_state.OID_ERROR_FLAGS: SnmpValue(printer_state.OID_ERROR_FLAGS, 0x02, 0),
+            printer_state.OID_ERROR_FLAGS: SnmpValue(printer_state.OID_ERROR_FLAGS, 0x04, "\x00"),
             printer_state.OID_RESET_CANDIDATE: SnmpValue(printer_state.OID_RESET_CANDIDATE, 0x80, None),
         }
         self.rows = {
@@ -54,6 +54,7 @@ class SupplyTests(unittest.TestCase):
         with patch.object(printer_state, "SnmpV1Client", FakeClient):
             result = printer_state.collect(config)
         self.assertTrue(result.online)
+        self.assertNotEqual(result.state, "error")
         self.assertEqual(set(result.supplies), {"preto", "ciano", "magenta", "amarelo", "cilindro_imagem"})
         self.assertEqual(result.supplies["preto"]["percent"], 80)
         self.assertEqual(result.uptime_seconds, 120)

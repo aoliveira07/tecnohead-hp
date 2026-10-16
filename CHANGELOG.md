@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.0.7] - 2026-10-16
+
+- Corrigida a interpretação do byte nulo de flags de erro retornado pela HP como estado sem erro.
+
 ## [1.0.6] - 2026-10-16
 
 - Isoladas as consultas SNMP para que um OID opcional não interrompa toda a leitura.
