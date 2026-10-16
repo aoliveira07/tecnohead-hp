@@ -1,8 +1,10 @@
-"""Small SNMPv1 read-only client.
+"""Small SNMPv1 client with a single, tightly-scoped reset operation.
 
-The application intentionally implements only GET and GETNEXT. There is no
-SNMP SET implementation in this module, which keeps discovery and monitoring
-read-only by construction.
+Discovery and monitoring use only GET and GETNEXT. The only write supported by
+this module is the explicitly named ``power_cycle_reset`` operation for the
+Printer-MIB ``prtGeneralReset`` object. It is deliberately not a generic SET
+API: the OID and value are fixed, and the caller must perform its own
+capability and state checks before invoking it.
 """
 
 from __future__ import annotations
@@ -14,7 +16,19 @@ from typing import Any, Iterable
 
 
 class SnmpError(RuntimeError):
-    """A read-only SNMP operation failed."""
+    """An SNMP operation failed."""
+
+
+class SnmpCommandError(SnmpError):
+    """A one-shot command failed after it may have reached the device."""
+
+    def __init__(self, message: str, *, command_sent: bool) -> None:
+        super().__init__(message)
+        self.command_sent = command_sent
+
+
+PRT_GENERAL_RESET_OID = "1.3.6.1.2.1.43.5.1.1.3.1"
+POWER_CYCLE_RESET_VALUE = 4
 
 
 @dataclass(frozen=True)
@@ -175,6 +189,22 @@ class SnmpV1Client:
         self.retries = max(1, min(int(retries), 3))
         self._request_id = 1000
 
+    def _exchange(self, packet: bytes, *, attempts: int | None = None) -> list[SnmpValue]:
+        last_error: Exception | None = None
+        for _ in range(max(1, attempts if attempts is not None else self.retries)):
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+                    sock.settimeout(self.timeout)
+                    sock.sendto(packet, (self.host, self.port))
+                    response, _ = sock.recvfrom(65535)
+                error_status, values = _parse_response(response)
+                if error_status:
+                    raise SnmpError(f"SNMP error-status={error_status}")
+                return values
+            except (OSError, SnmpError) as exc:
+                last_error = exc
+        raise SnmpError(f"Falha SNMPv1 em {self.host}: {last_error}")
+
     def _request(self, pdu_tag: int, oids: Iterable[str]) -> list[SnmpValue]:
         oid_list = list(oids)
         if not oid_list:
@@ -189,20 +219,46 @@ class SnmpV1Client:
             + _tlv(0x30, varbinds),
         )
         packet = _tlv(0x30, _tlv(0x02, _encode_integer(0)) + _tlv(0x04, self.community.encode()) + pdu)
-        last_error: Exception | None = None
-        for _ in range(self.retries):
-            try:
-                with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-                    sock.settimeout(self.timeout)
-                    sock.sendto(packet, (self.host, self.port))
-                    response, _ = sock.recvfrom(65535)
-                error_status, values = _parse_response(response)
-                if error_status:
-                    raise SnmpError(f"SNMP error-status={error_status}")
-                return values
-            except (OSError, SnmpError) as exc:
-                last_error = exc
-        raise SnmpError(f"Falha SNMPv1 em {self.host}: {last_error}")
+        return self._exchange(packet)
+
+    def power_cycle_reset(self) -> list[SnmpValue]:
+        """Send exactly one ``powerCycleReset(4)`` request.
+
+        This method has no retry path by design. A lost response can mean the
+        printer rebooted successfully, so repeating the request could trigger
+        a second reboot. The service layer performs read-only verification and
+        reports an inconclusive result when necessary.
+        """
+
+        self._request_id = (self._request_id + 1) & 0x7FFFFFFF
+        value = _tlv(0x02, _encode_integer(POWER_CYCLE_RESET_VALUE))
+        varbind = _tlv(0x30, _encode_oid(PRT_GENERAL_RESET_OID) + value)
+        pdu = _tlv(
+            0xA3,
+            _tlv(0x02, _encode_integer(self._request_id))
+            + _tlv(0x02, _encode_integer(0))
+            + _tlv(0x02, _encode_integer(0))
+            + _tlv(0x30, varbind),
+        )
+        packet = _tlv(0x30, _tlv(0x02, _encode_integer(0)) + _tlv(0x04, self.community.encode()) + pdu)
+
+        command_sent = False
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+                sock.settimeout(self.timeout)
+                sock.sendto(packet, (self.host, self.port))
+                command_sent = True
+                response, _ = sock.recvfrom(65535)
+        except OSError as exc:
+            raise SnmpCommandError(f"Falha ao enviar/receber o reboot SNMP: {type(exc).__name__}.", command_sent=command_sent) from exc
+
+        try:
+            error_status, values = _parse_response(response)
+        except SnmpError as exc:
+            raise SnmpCommandError(str(exc), command_sent=command_sent) from exc
+        if error_status:
+            raise SnmpCommandError(f"SNMP error-status={error_status}", command_sent=command_sent)
+        return values
 
     def get(self, oid: str) -> SnmpValue | None:
         values = self._request(0xA0, [oid])

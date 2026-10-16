@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.9] - 2026-10-16
+
+- Adicionada homologação supervisionada do `powerCycleReset(4)` via Printer-MIB.
+- O teste exige comunidade SNMP de escrita separada, autorização no painel, confirmação do OID por GET e estado ocioso.
+- O envio ocorre no máximo uma vez, sem retry; a verificação posterior usa somente GET e nunca permite reset de NVRAM ou de fábrica.
+- Na unidade real atual, o OID não foi confirmado, portanto nenhum SNMP SET é enviado.
+
 ## [1.0.8] - 2026-10-16
 
 - Adicionado o campo **Tempo de atividade** ao painel, usando o uptime SNMP já coletado.

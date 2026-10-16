@@ -6,12 +6,13 @@
 - HP Color LaserJet Pro MFP M176n conectada por Ethernet.
 - IP obtido no painel da impressora em `Setup → Network Setup → Show IP Address`.
 - Comunidade SNMPv1 de leitura conhecida pelo administrador.
+- Comunidade SNMPv1 de escrita separada somente se for realizar a homologação do reboot.
 
 ## Configuração pelo Ingress
 
 O primeiro carregamento mostra `Aguardando configuração da impressora`, com o IP vazio. Preencha o endereço, a comunidade SNMP e, se necessário, host/porta/credenciais MQTT. O campo de IP sempre permanece editável, mesmo quando a impressora está offline.
 
-Os botões de diagnóstico fazem somente leituras: SNMP GET/WALK, GET HTTP/EWS e publicação de uma mensagem de teste no broker. Eles não fazem `SNMP SET`, POST administrativo, impressão, wake ou reboot.
+Os botões de diagnóstico fazem somente leituras: SNMP GET/WALK, GET HTTP/EWS e publicação de uma mensagem de teste no broker. O botão de homologação do reboot só é habilitado após autorização salva e confirmação do `prtGeneralReset` por GET; nesse caso envia exatamente uma solicitação `powerCycleReset(4)`, sem retry. Se o GET retornar `No Such Name`, nenhum `SNMP SET` é enviado.
 
 ## Entidades MQTT
 
@@ -21,7 +22,7 @@ O tópico raiz padrão é `tecnohead_hp/printers/m176n_01`. Comandos não são p
 
 ## Segurança
 
-- Use comunidade SNMP somente leitura; ela é armazenada em `/data/config.json` com modo restrito e nunca retorna pela API.
+- Use comunidades SNMP separadas para leitura e, apenas durante o teste autorizado, escrita; ambas são armazenadas em `/data/config.json` com modo restrito e nunca retornam pela API.
 - SNMPv1 e HTTP não cifram o tráfego. Mantenha a impressora e o App em uma LAN/VLAN confiável.
 - Não publique a porta 8099 diretamente. O `config.yaml` usa Ingress; o servidor aceita somente o gateway de Ingress `172.30.32.2` em produção.
 - Diagnósticos mascaram credenciais e não incluem o conteúdo completo da página EWS.
@@ -32,4 +33,4 @@ O diretório `/data` é persistente e deve entrar no backup do Home Assistant. A
 
 ## Limitações homologadas
 
-Sem acesso à unidade física, os valores de uptime, estado, erros, EWS, níveis, firmware e contador de páginas permanecem pendentes. O OID `prtGeneralReset` é consultável apenas como GET durante diagnóstico, mas reboot não é implementado nem exposto. Wake-on-LAN não é presumido.
+Na unidade real atual, o OID `prtGeneralReset` não foi confirmado por GET, portanto a porta de homologação permanece bloqueada e nenhum SET foi enviado. Se um firmware confirmar o objeto no futuro, o teste ainda deverá ocorrer com a impressora ociosa e acesso físico disponível. Wake-on-LAN não é presumido.

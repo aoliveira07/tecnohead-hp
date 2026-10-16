@@ -11,9 +11,9 @@ from typing import Any
 
 from ews_client import fetch_ews
 from mqtt_discovery import MqttPublisher
-from printer_state import CollectionResult, collect
+from printer_state import CollectionResult, OID_UPTIME, collect
 from settings import SettingsError, SettingsStore
-from snmp_client import SnmpError, SnmpV1Client
+from snmp_client import POWER_CYCLE_RESET_VALUE, PRT_GENERAL_RESET_OID, SnmpCommandError, SnmpError, SnmpV1Client, ticks_to_seconds
 
 
 class MonitorService:
@@ -24,6 +24,7 @@ class MonitorService:
         self._wake = threading.Event()
         self._thread: threading.Thread | None = None
         self._logs: deque[str] = deque(maxlen=200)
+        self._last_reset_command_at: float | None = None
         self._state: dict[str, Any] = self._waiting_state("Aguardando configuração da impressora.")
         self.mqtt = MqttPublisher(self.store.get, self._log)
 
@@ -137,18 +138,179 @@ class MonitorService:
         ok, message = self.mqtt.test()
         return {"ok": ok, "message": message}
 
+    def _verify_reset(self, client: SnmpV1Client, previous_uptime: float | None) -> dict[str, Any]:
+        """Observe the printer after a one-shot command using GET only."""
+
+        deadline = time.monotonic() + 30.0
+        saw_disconnect = False
+        last_uptime: float | None = None
+        while time.monotonic() < deadline:
+            time.sleep(min(2.0, max(0.1, deadline - time.monotonic())))
+            try:
+                value = client.get(OID_UPTIME)
+            except SnmpError:
+                saw_disconnect = True
+                continue
+            if value is None or value.is_missing:
+                saw_disconnect = True
+                continue
+            last_uptime = ticks_to_seconds(value.value)
+            if previous_uptime is not None and last_uptime is not None and last_uptime < previous_uptime:
+                return {
+                    "status": "verified",
+                    "saw_disconnect": saw_disconnect,
+                    "uptime_before": previous_uptime,
+                    "uptime_after": last_uptime,
+                }
+        return {
+            "status": "inconclusive",
+            "saw_disconnect": saw_disconnect,
+            "uptime_before": previous_uptime,
+            "uptime_after": last_uptime,
+        }
+
+    def test_reboot(self) -> dict[str, Any]:
+        """Run the supervised, one-shot Printer-MIB power-cycle test."""
+
+        config = self.store.get()
+        if not config.get("ip"):
+            return {"ok": False, "status": "blocked", "command_sent": False, "message": "IP da impressora não configurado."}
+        if not config.get("allow_reset_test"):
+            return {"ok": False, "status": "blocked", "command_sent": False, "message": "O teste de reboot SNMP está desabilitado nas configurações."}
+        if not config.get("snmp_community"):
+            return {"ok": False, "status": "blocked", "command_sent": False, "message": "Configure a comunidade SNMPv1 de leitura para fazer a pré-verificação."}
+        if not config.get("snmp_write_community"):
+            return {"ok": False, "status": "blocked", "command_sent": False, "message": "Configure a comunidade SNMPv1 de escrita somente para o teste supervisionado."}
+
+        read_client = SnmpV1Client(
+            config["ip"],
+            config["snmp_community"],
+            config["snmp_port"],
+            config["snmp_timeout"],
+            config["snmp_retries"],
+        )
+        try:
+            probe = read_client.get(PRT_GENERAL_RESET_OID)
+        except SnmpError as exc:
+            message = str(exc)
+            if "error-status=" in message:
+                self._log("Homologação de reboot bloqueada: prtGeneralReset não foi confirmado por GET; nenhum SET foi enviado.")
+                return {
+                    "ok": False,
+                    "status": "unavailable",
+                    "command_sent": False,
+                    "message": "A impressora não confirmou o OID prtGeneralReset por GET; nenhum SNMP SET foi enviado.",
+                    "detail": message,
+                }
+            return {"ok": False, "status": "preflight_failed", "command_sent": False, "message": f"Não foi possível verificar o OID de reboot: {message}"}
+        if probe is None or probe.is_missing:
+            self._log("Homologação de reboot bloqueada: prtGeneralReset ausente; nenhum SET foi enviado.")
+            return {
+                "ok": False,
+                "status": "unavailable",
+                "command_sent": False,
+                "message": "A impressora não confirmou o OID prtGeneralReset por GET; nenhum SNMP SET foi enviado.",
+            }
+        if probe.tag != 0x02 or probe.value not in {3, POWER_CYCLE_RESET_VALUE}:
+            self._log("Homologação de reboot bloqueada: prtGeneralReset retornou tipo/estado incompatível.")
+            return {
+                "ok": False,
+                "status": "unavailable",
+                "command_sent": False,
+                "message": "O OID de reboot respondeu com tipo ou estado incompatível; nenhum SNMP SET foi enviado.",
+                "value": probe.value,
+            }
+
+        before = collect(config)
+        if not before.online:
+            return {"ok": False, "status": "blocked", "command_sent": False, "message": "A impressora não está online para o teste supervisionado."}
+        if before.state in {"printing", "warmup", "error", "unknown"}:
+            return {"ok": False, "status": "blocked", "command_sent": False, "message": f"Teste bloqueado no estado atual: {before.state_label}."}
+
+        with self._lock:
+            if self._last_reset_command_at is not None:
+                elapsed = time.monotonic() - self._last_reset_command_at
+                if elapsed < 600:
+                    remaining = max(1, int(600 - elapsed))
+                    return {
+                        "ok": False,
+                        "status": "cooldown",
+                        "command_sent": False,
+                        "message": f"Aguarde {remaining} segundos antes de uma nova tentativa; o último envio pode ter reiniciado a impressora.",
+                    }
+            self._last_reset_command_at = time.monotonic()
+
+        write_client = SnmpV1Client(
+            config["ip"],
+            config["snmp_write_community"],
+            config["snmp_port"],
+            config["snmp_timeout"],
+            retries=1,
+        )
+        command_sent = False
+        request_error: str | None = None
+        response_values = []
+        try:
+            response_values = write_client.power_cycle_reset()
+            command_sent = True
+        except SnmpCommandError as exc:
+            command_sent = exc.command_sent
+            request_error = str(exc)
+        except SnmpError as exc:
+            request_error = str(exc)
+
+        if not command_sent:
+            with self._lock:
+                self._last_reset_command_at = None
+            self._log(f"Homologação de reboot não enviada: {request_error or 'falha antes do envio'}")
+            return {"ok": False, "status": "send_failed", "command_sent": False, "message": "O comando não foi enviado à impressora.", "detail": request_error}
+
+        verification = self._verify_reset(read_client, before.uptime_seconds)
+        response_ack = bool(
+            response_values
+            and response_values[0].oid == PRT_GENERAL_RESET_OID
+            and response_values[0].tag == 0x02
+            and response_values[0].value == POWER_CYCLE_RESET_VALUE
+        )
+        if verification["status"] == "verified":
+            self._log("Homologação de reboot concluída: powerCycleReset(4) e queda do uptime confirmados.")
+            return {
+                "ok": True,
+                "status": "verified",
+                "command_sent": True,
+                "message": "Reinício SNMP confirmado pelo retorno da impressora e pela redução do tempo de atividade.",
+                "response_ack": response_ack,
+                "verification": verification,
+                "request_error": request_error,
+            }
+
+        self._log("Homologação de reboot inconclusiva após um único envio; nenhum retry será executado.")
+        return {
+            "ok": False,
+            "status": "inconclusive",
+            "command_sent": True,
+            "message": "A solicitação foi enviada uma única vez, mas o reinício não pôde ser confirmado; ela não será repetida automaticamente.",
+            "response_ack": response_ack,
+            "verification": verification,
+            "request_error": request_error,
+        }
+
     def discover(self) -> dict[str, Any]:
         result = self.test_connection()
         result["read_only"] = True
-        result["reset_oid_note"] = "A presença do OID não autoriza SNMP SET; reboot continua bloqueado."
+        result["reset_oid_note"] = "O reboot só é testado após GET positivo, autorização explícita e estado ocioso; ausência do OID bloqueia o SET."
         return result
 
     def diagnostics(self) -> dict[str, Any]:
         status = self.status()
         with self._lock:
             status["logs"] = list(self._logs)
+        reset_present = bool(status.get("reset_oid_present"))
         status["capabilities"] = {
-            "reboot": {"status": "unavailable", "reason": "não homologado na unidade real"},
+            "reboot": {
+                "status": "ready_for_supervised_test" if reset_present and status["settings"].get("allow_reset_test") and status["settings"].get("snmp_write_community", {}).get("configured") else ("available_but_disabled" if reset_present else "unavailable"),
+                "reason": "prtGeneralReset confirmado por GET; teste ainda supervisionado" if reset_present else "prtGeneralReset não confirmado por GET na unidade real",
+            },
             "wake": {"status": "unavailable", "reason": "não comprovado; não presumir Wake-on-LAN"},
         }
         return status

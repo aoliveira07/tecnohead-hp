@@ -19,6 +19,7 @@ DEFAULTS: dict[str, Any] = {
     "snmp_port": 161,
     "snmp_version": "v1",
     "snmp_community": "",
+    "snmp_write_community": "",
     "snmp_timeout": 3.0,
     "snmp_retries": 1,
     "poll_interval": 60,
@@ -37,9 +38,10 @@ DEFAULTS: dict[str, Any] = {
     "allow_remote_control": False,
     "allow_restart": False,
     "allow_wake": False,
+    "allow_reset_test": False,
 }
 
-SECRET_FIELDS = {"snmp_community", "ews_password", "mqtt_password"}
+SECRET_FIELDS = {"snmp_community", "snmp_write_community", "ews_password", "mqtt_password"}
 DATA_DIR = Path(os.environ.get("TECNHEAD_DATA_DIR", "/data"))
 CONFIG_PATH = DATA_DIR / "config.json"
 
@@ -77,12 +79,13 @@ def validate(values: dict[str, Any]) -> dict[str, Any]:
     result["ews_port"] = _bounded_int(result["ews_port"], 1, 65535, "Porta EWS")
     result["mqtt_port"] = _bounded_int(result["mqtt_port"], 1, 65535, "Porta MQTT")
     result["snmp_community"] = str(result["snmp_community"])
+    result["snmp_write_community"] = str(result["snmp_write_community"])
     result["ews_username"] = str(result["ews_username"])
     result["ews_password"] = str(result["ews_password"])
     result["mqtt_host"] = str(result["mqtt_host"]).strip()
     result["mqtt_username"] = str(result["mqtt_username"])
     result["mqtt_password"] = str(result["mqtt_password"])
-    for key in {"use_ews", "mqtt_auto", "mqtt_tls", "alertas_suprimentos", "allow_remote_control", "allow_restart", "allow_wake"}:
+    for key in {"use_ews", "mqtt_auto", "mqtt_tls", "alertas_suprimentos", "allow_remote_control", "allow_restart", "allow_wake", "allow_reset_test"}:
         result[key] = _as_bool(result[key])
     if result["allow_restart"] or result["allow_wake"]:
         raise SettingsError("Reiniciar e Acordar permanecem bloqueados até homologação presencial.")

@@ -1,6 +1,28 @@
 import unittest
+from unittest.mock import patch
 
-from snmp_client import SnmpValue, _decode_oid, _encode_oid, _parse_response, _tlv
+from snmp_client import POWER_CYCLE_RESET_VALUE, PRT_GENERAL_RESET_OID, SnmpValue, SnmpV1Client, _decode_oid, _encode_oid, _parse_response, _tlv
+
+
+class _FakeSocket:
+    def __init__(self, response: bytes):
+        self.response = response
+        self.sent: list[tuple[bytes, tuple[str, int]]] = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def settimeout(self, _timeout):
+        return None
+
+    def sendto(self, packet, address):
+        self.sent.append((packet, address))
+
+    def recvfrom(self, _size):
+        return self.response, ("192.0.2.1", 161)
 
 
 class SnmpParsingTests(unittest.TestCase):
@@ -20,6 +42,19 @@ class SnmpParsingTests(unittest.TestCase):
         self.assertEqual(error_status, 0)
         self.assertEqual(values[0], SnmpValue("1.3.6.1.2.1.1.5.0", 0x04, "HP M176n"))
         self.assertEqual(values[1].value, 12345)
+
+    def test_power_cycle_packet_is_fixed_to_value_four_and_sent_once(self):
+        response_varbind = _tlv(0x30, _encode_oid(PRT_GENERAL_RESET_OID) + _tlv(0x02, bytes([POWER_CYCLE_RESET_VALUE])))
+        response_pdu = _tlv(0xA2, _tlv(0x02, b"\x01") + _tlv(0x02, b"\x00") + _tlv(0x02, b"\x00") + _tlv(0x30, response_varbind))
+        response = _tlv(0x30, _tlv(0x02, b"\x00") + _tlv(0x04, b"rw") + response_pdu)
+        fake = _FakeSocket(response)
+        with patch("snmp_client.socket.socket", return_value=fake):
+            values = SnmpV1Client("192.0.2.10", "rw", retries=3).power_cycle_reset()
+        self.assertEqual(len(fake.sent), 1)
+        packet = fake.sent[0][0]
+        self.assertIn(_encode_oid(PRT_GENERAL_RESET_OID) + _tlv(0x02, b"\x04"), packet)
+        self.assertNotIn(_encode_oid(PRT_GENERAL_RESET_OID) + _tlv(0x02, b"\x05"), packet)
+        self.assertEqual(values[0].value, POWER_CYCLE_RESET_VALUE)
 
 
 if __name__ == "__main__":
