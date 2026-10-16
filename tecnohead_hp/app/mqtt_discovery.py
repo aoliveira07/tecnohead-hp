@@ -89,7 +89,7 @@ def build_discovery_payloads(state: dict[str, Any]) -> dict[str, dict[str, Any]]
         "tempo_ligada",
         {
             **common,
-            "name": "Tempo ligada",
+            "name": "Tempo de atividade",
             "unique_id": f"{DEVICE_ID}_tempo_ligada",
             "unit_of_measurement": "s",
             "state_class": "measurement",

@@ -14,6 +14,9 @@ class DiscoveryTests(unittest.TestCase):
         online = next(value for topic, value in payloads.items() if topic.endswith(f"{DEVICE_ID}_online/config"))
         self.assertEqual(online["device"]["identifiers"], [DEVICE_ID])
         self.assertNotIn("ip", json_text(payloads))
+        activity = next(value for topic, value in payloads.items() if topic.endswith(f"{DEVICE_ID}_tempo_ligada/config"))
+        self.assertEqual(activity["name"], "Tempo de atividade")
+        self.assertEqual(activity["unit_of_measurement"], "s")
 
     def test_no_entities_before_configuration(self):
         self.assertEqual(build_discovery_payloads({"configured": False}), {})

@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.0.8] - 2026-10-16
+
+- Adicionado o campo **Tempo de atividade** ao painel, usando o uptime SNMP já coletado.
+- Renomeado o sensor MQTT exibido de “Tempo ligada” para “Tempo de atividade”, preservando o identificador existente.
+
 ## [1.0.7] - 2026-10-16
 
 - Corrigida a interpretação do byte nulo de flags de erro retornado pela HP como estado sem erro.

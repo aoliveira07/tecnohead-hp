@@ -11,7 +11,7 @@
 | SNMPv1 | GET de identificação/estado e WALK de suprimentos | Pendente de teste na unidade real |
 | EWS HTTP | GET da página principal, parser tolerante e fonte marcada | Pendente de teste na unidade real |
 | Modelo | `hrDeviceDescr` e título EWS quando disponíveis | Pendente de teste |
-| Uptime | `sysUpTime.0`, com conversão de TimeTicks | Pendente de teste |
+| Tempo de atividade | `sysUpTime.0`, com conversão de TimeTicks e apresentação no painel/MQTT | Validado na unidade real |
 | Estado | `hrPrinterStatus.1` traduzido para pt-BR | Pendente de teste |
 | Erros | `hrPrinterDetectedErrorState.1` preservado como bits/raw | Pendente de interpretação física |
 | Consumíveis | Descoberta dinâmica por tipo, descrição, unidade, capacidade, nível e cor | Cinco itens observados em dump público, não nesta unidade |
