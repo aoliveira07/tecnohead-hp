@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.12] - 2026-10-16
+
+- Criado o Laboratório de comandos SNMP no painel, com catálogo do `prtGeneralReset.1` e seus valores 3, 4, 5 e 6.
+- Adicionada sondagem somente leitura por GET/GETNEXT do ramo geral do Printer-MIB e da raiz privada HP `1.3.6.1.4.1.11`.
+- Adicionados botões de envio direto para os três valores de reset: um SET por clique, retorno SNMP imediato, sem pré-GET, espera posterior, retry ou cooldown.
+- Adicionado envio em sequência dos três candidatos do catálogo para teste direto, sem aguardar o retorno do reboot entre eles.
+- Mantido o bloqueio de OIDs arbitrários: OIDs HP descobertos não são tratados automaticamente como comandos de escrita.
+
 ## [1.0.11] - 2026-10-16
 
 - Adicionados botões separados para `resetToNVRAM(5)` e `resetToFactoryDefaults(6)`.

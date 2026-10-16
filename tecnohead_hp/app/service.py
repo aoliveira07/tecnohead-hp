@@ -22,6 +22,18 @@ RESET_ACTIONS: dict[str, dict[str, Any]] = {
     "factory": {"value": 6, "label": "resetToFactoryDefaults(6)", "method": "reset_to_factory_defaults", "confirmation": "RESET_FACTORY_DEFAULTS"},
 }
 
+RESET_ENUMERATION = (
+    {"value": 3, "label": "notResetting(3)", "sendable": False, "note": "Estado normal; não reinicia."},
+    {"value": 4, "label": "powerCycleReset(4)", "sendable": True, "note": "Pedido padrão de ciclo de energia, se implementado."},
+    {"value": 5, "label": "resetToNVRAM(5)", "sendable": True, "note": "Reset para o estado NVRAM/boot do fabricante; pode alterar configurações."},
+    {"value": 6, "label": "resetToFactoryDefaults(6)", "sendable": True, "note": "Reset de fábrica; pode apagar IP, SNMP e demais configurações."},
+)
+
+RESET_PROBE_BASES = (
+    ("Printer-MIB / prtGeneral", "1.3.6.1.2.1.43.5.1.1", 64),
+    ("HP private enterprise MIB (somente leitura)", "1.3.6.1.4.1.11", 128),
+)
+
 
 class MonitorService:
     def __init__(self, store: SettingsStore | None = None) -> None:
@@ -32,6 +44,7 @@ class MonitorService:
         self._thread: threading.Thread | None = None
         self._logs: deque[str] = deque(maxlen=200)
         self._last_reset_command_at: float | None = None
+        self._reset_probe: dict[str, Any] = {"status": "not_run", "collected_at": None, "reset_oid": None, "walks": []}
         self._state: dict[str, Any] = self._waiting_state("Aguardando configuração da impressora.")
         self.mqtt = MqttPublisher(self.store.get, self._log)
 
@@ -145,6 +158,93 @@ class MonitorService:
         ok, message = self.mqtt.test()
         return {"ok": ok, "message": message}
 
+    def reset_lab(self) -> dict[str, Any]:
+        """Return the fixed reset catalog and the latest read-only probe."""
+
+        settings = self.store.public()
+        with self._lock:
+            probe = json.loads(json.dumps(self._reset_probe, ensure_ascii=False))
+        candidates = [
+            {
+                "mode": mode,
+                "oid": PRT_GENERAL_RESET_OID,
+                "value": action["value"],
+                "label": action["label"],
+                "sendable": True,
+                "note": next(item["note"] for item in RESET_ENUMERATION if item["value"] == action["value"]),
+            }
+            for mode, action in RESET_ACTIONS.items()
+        ]
+        return {
+            "oid": PRT_GENERAL_RESET_OID,
+            "oid_name": "prtGeneralReset.1",
+            "catalog": {
+                "values": list(RESET_ENUMERATION),
+                "candidates": candidates,
+                "hp_private_enterprise_root": "1.3.6.1.4.1.11",
+                "hp_private_status": "Nenhum OID de reboot HP específico da M176n foi confirmado; a raiz privada só pode ser sondada por GET.",
+            },
+            "ready": bool(settings.get("ip") and settings.get("allow_reset_test") and settings.get("snmp_write_community", {}).get("configured")),
+            "read_community_configured": bool(settings.get("snmp_community", {}).get("configured")),
+            "write_community_configured": bool(settings.get("snmp_write_community", {}).get("configured")),
+            "probe": probe,
+        }
+
+    @staticmethod
+    def _public_probe_value(value: Any) -> Any:
+        if isinstance(value, (str, int, float, bool)) or value is None:
+            return value
+        return str(value)
+
+    def probe_reset_lab(self) -> dict[str, Any]:
+        """Probe reset and related MIB branches with GET/GETNEXT only."""
+
+        config = self.store.get()
+        if not config.get("ip"):
+            return {"ok": False, "message": "IP da impressora não configurado.", "lab": self.reset_lab()}
+        if not config.get("snmp_community"):
+            return {"ok": False, "message": "Configure a comunidade SNMPv1 de leitura para sondar os OIDs.", "lab": self.reset_lab()}
+
+        client = SnmpV1Client(
+            config["ip"],
+            config["snmp_community"],
+            config["snmp_port"],
+            config["snmp_timeout"],
+            config["snmp_retries"],
+        )
+        now = dt.datetime.now(dt.timezone.utc).isoformat()
+        probe: dict[str, Any] = {"status": "completed", "collected_at": now, "reset_oid": None, "walks": []}
+        try:
+            value = client.get(PRT_GENERAL_RESET_OID)
+            probe["reset_oid"] = {
+                "oid": PRT_GENERAL_RESET_OID,
+                "status": "missing" if value is None or value.is_missing else "present",
+                "tag": value.tag if value else None,
+                "value": self._public_probe_value(value.value) if value else None,
+                "message": "GET respondeu." if value and not value.is_missing else "No Such Name/sem valor.",
+            }
+        except SnmpError as exc:
+            probe["reset_oid"] = {"oid": PRT_GENERAL_RESET_OID, "status": "error", "message": str(exc)}
+
+        for label, base_oid, max_rows in RESET_PROBE_BASES:
+            item: dict[str, Any] = {"label": label, "base_oid": base_oid, "status": "completed", "truncated": False, "values": []}
+            try:
+                values = client.walk(base_oid, max_rows=max_rows)
+                item["values"] = [
+                    {"oid": value.oid, "tag": value.tag, "value": self._public_probe_value(value.value)}
+                    for value in values
+                ]
+                item["truncated"] = len(values) >= max_rows
+            except SnmpError as exc:
+                item["status"] = "error"
+                item["message"] = str(exc)
+            probe["walks"].append(item)
+
+        with self._lock:
+            self._reset_probe = probe
+        self._log("Sondagem do laboratório SNMP concluída somente com GET/GETNEXT; nenhum SET foi enviado.")
+        return {"ok": probe["reset_oid"].get("status") == "present", "message": "Sondagem somente leitura concluída.", "lab": self.reset_lab()}
+
     def _claim_reset_slot(self) -> dict[str, Any] | None:
         with self._lock:
             if self._last_reset_command_at is not None:
@@ -165,20 +265,11 @@ class MonitorService:
             self._last_reset_command_at = None
 
     def _force_reset(self, config: dict[str, Any], mode: str = "power_cycle") -> dict[str, Any]:
-        """Send one fixed reset request without the optional-OID probe."""
+        """Send one fixed reset request and return only its immediate SNMP result."""
 
         action = RESET_ACTIONS[mode]
         if not config.get("snmp_write_community"):
             return {"ok": False, "status": "blocked", "command_sent": False, "message": "Configure a comunidade SNMPv1 de escrita somente para o teste."}
-        current = self.status()
-        if not current.get("online"):
-            return {"ok": False, "status": "blocked", "command_sent": False, "message": "A impressora não está online para o teste."}
-        if current.get("state") in {"printing", "warmup", "error", "unknown"}:
-            return {"ok": False, "status": "blocked", "command_sent": False, "message": f"Teste bloqueado no estado atual: {current.get('state_label', 'desconhecido')}."}
-        cooldown = self._claim_reset_slot()
-        if cooldown:
-            return cooldown
-
         write_client = SnmpV1Client(
             config["ip"],
             config["snmp_write_community"],
@@ -199,7 +290,6 @@ class MonitorService:
             request_error = str(exc)
 
         if not command_sent:
-            self._release_reset_slot()
             self._log(f"Teste {action['label']} não enviado: {request_error or 'falha antes do envio'}")
             return {"ok": False, "status": "send_failed", "command_sent": False, "message": "O comando não foi enviado à impressora.", "detail": request_error}
 
@@ -226,6 +316,36 @@ class MonitorService:
             "message": f"O pacote {action['label']} foi enviado uma única vez, mas a impressora não confirmou a resposta. Não haverá retry; verifique o retorno e o tempo de atividade.{warning}",
             "response_ack": False,
             "request_error": request_error,
+        }
+
+    def send_reset_candidate(self, mode: str) -> dict[str, Any]:
+        """Direct lab action: one fixed SET, no probe, wait, retry or cooldown."""
+
+        if mode not in RESET_ACTIONS:
+            return {"ok": False, "status": "blocked", "command_sent": False, "message": "Candidato de reset desconhecido."}
+        config = self.store.get()
+        if not config.get("ip"):
+            return {"ok": False, "status": "blocked", "command_sent": False, "message": "IP da impressora não configurado."}
+        if not config.get("allow_reset_test"):
+            return {"ok": False, "status": "blocked", "command_sent": False, "message": "Marque a autorização do teste de reboot SNMP e salve."}
+        return self._force_reset(config, mode)
+
+    def send_all_reset_candidates(self) -> dict[str, Any]:
+        """Send every fixed reset value in catalog order without a post-wait."""
+
+        config = self.store.get()
+        if not config.get("ip"):
+            return {"ok": False, "status": "blocked", "command_sent": False, "message": "IP da impressora não configurado."}
+        if not config.get("allow_reset_test"):
+            return {"ok": False, "status": "blocked", "command_sent": False, "message": "Marque a autorização do teste de reboot SNMP e salve."}
+        results = [self._force_reset(config, mode) | {"mode": mode} for mode in RESET_ACTIONS]
+        sent = sum(1 for result in results if result.get("command_sent"))
+        return {
+            "ok": sent > 0,
+            "status": "batch_sent",
+            "command_sent": sent > 0,
+            "message": f"Foram tentados {len(results)} valores do catálogo; {sent} pacote(s) foram enviados. Nenhum reboot foi aguardado.",
+            "results": results,
         }
 
     def _verify_reset(self, client: SnmpV1Client, previous_uptime: float | None) -> dict[str, Any]:

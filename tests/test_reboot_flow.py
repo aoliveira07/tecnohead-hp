@@ -9,6 +9,74 @@ from snmp_client import POWER_CYCLE_RESET_VALUE, PRT_GENERAL_RESET_OID, SnmpErro
 
 
 class RebootFlowTests(unittest.TestCase):
+    def test_reset_lab_lists_standard_values_and_hp_private_root(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = SettingsStore(Path(directory) / "config.json")
+            lab = MonitorService(store).reset_lab()
+
+        self.assertEqual(lab["oid"], PRT_GENERAL_RESET_OID)
+        self.assertEqual([item["value"] for item in lab["catalog"]["values"]], [3, 4, 5, 6])
+        self.assertEqual([item["value"] for item in lab["catalog"]["candidates"]], [4, 5, 6])
+        self.assertEqual(lab["catalog"]["hp_private_enterprise_root"], "1.3.6.1.4.1.11")
+
+    def test_direct_candidate_sends_without_probe_state_or_cooldown(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = SettingsStore(Path(directory) / "config.json")
+            store.save(
+                {
+                    "ip": "192.168.0.55",
+                    "snmp_write_community": "write",
+                    "allow_reset_test": True,
+                }
+            )
+            service = MonitorService(store)
+            fake_client = MagicMock()
+            fake_client.reset_to_factory_defaults.return_value = [SnmpValue(PRT_GENERAL_RESET_OID, 0x02, 6)]
+            with patch("service.SnmpV1Client", return_value=fake_client) as client_factory:
+                result = service.send_reset_candidate("factory")
+
+        self.assertTrue(result["command_sent"])
+        self.assertEqual(result["status"], "sent")
+        client_factory.assert_called_once_with("192.168.0.55", "write", 161, 3.0, retries=1)
+        fake_client.reset_to_factory_defaults.assert_called_once_with()
+
+    def test_direct_all_sends_each_catalog_value_without_post_wait(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = SettingsStore(Path(directory) / "config.json")
+            store.save({"ip": "192.168.0.55", "snmp_write_community": "write", "allow_reset_test": True})
+            service = MonitorService(store)
+            fake_client = MagicMock()
+            fake_client.power_cycle_reset.return_value = [SnmpValue(PRT_GENERAL_RESET_OID, 0x02, 4)]
+            fake_client.reset_to_nvram.return_value = [SnmpValue(PRT_GENERAL_RESET_OID, 0x02, 5)]
+            fake_client.reset_to_factory_defaults.return_value = [SnmpValue(PRT_GENERAL_RESET_OID, 0x02, 6)]
+            with patch("service.SnmpV1Client", return_value=fake_client):
+                result = service.send_all_reset_candidates()
+
+        self.assertEqual(result["status"], "batch_sent")
+        self.assertEqual(len(result["results"]), 3)
+        self.assertEqual(sum(item["command_sent"] for item in result["results"]), 3)
+        fake_client.power_cycle_reset.assert_called_once_with()
+        fake_client.reset_to_nvram.assert_called_once_with()
+        fake_client.reset_to_factory_defaults.assert_called_once_with()
+
+    def test_reset_lab_probe_is_read_only(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = SettingsStore(Path(directory) / "config.json")
+            store.save({"ip": "192.168.0.55", "snmp_community": "read"})
+            service = MonitorService(store)
+            fake_client = MagicMock()
+            fake_client.get.return_value = SnmpValue(PRT_GENERAL_RESET_OID, 0x02, 3)
+            fake_client.walk.return_value = [SnmpValue("1.3.6.1.2.1.43.5.1.1.3.1", 0x02, 3)]
+            with patch("service.SnmpV1Client", return_value=fake_client):
+                result = service.probe_reset_lab()
+
+        self.assertTrue(result["ok"])
+        fake_client.get.assert_called_once_with(PRT_GENERAL_RESET_OID)
+        self.assertEqual(fake_client.walk.call_count, 2)
+        fake_client.power_cycle_reset.assert_not_called()
+        fake_client.reset_to_nvram.assert_not_called()
+        fake_client.reset_to_factory_defaults.assert_not_called()
+
     def test_missing_reset_oid_never_reaches_write_path(self):
         with tempfile.TemporaryDirectory() as directory:
             store = SettingsStore(Path(directory) / "config.json")

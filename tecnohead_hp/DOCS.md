@@ -12,7 +12,7 @@
 
 O primeiro carregamento mostra `Aguardando configuração da impressora`, com o IP vazio. Preencha o endereço, a comunidade SNMP e, se necessário, host/porta/credenciais MQTT. O campo de IP sempre permanece editável, mesmo quando a impressora está offline.
 
-Os botões de diagnóstico fazem somente leituras: SNMP GET/WALK, GET HTTP/EWS e publicação de uma mensagem de teste no broker. O teste normal do reboot exige autorização salva e confirmação do `prtGeneralReset` por GET. Os botões forçados podem enviar somente `powerCycleReset(4)`, `resetToNVRAM(5)` ou `resetToFactoryDefaults(6)`, sem aguardar resposta posterior e sem retry. As opções 5 e 6 exigem digitar `RESET_NVRAM` ou `RESET_FACTORY_DEFAULTS`, respectivamente. O reset de fábrica pode apagar IP, comunidade e demais configurações.
+Os botões de diagnóstico fazem somente leituras: SNMP GET/WALK, GET HTTP/EWS e publicação de uma mensagem de teste no broker. O Laboratório SNMP lista o catálogo fixo do `prtGeneralReset.1` e pode sondar o Printer-MIB e a raiz privada HP somente por GET/GETNEXT. Cada botão de comando envia diretamente uma única operação SNMP SET (`powerCycleReset(4)`, `resetToNVRAM(5)` ou `resetToFactoryDefaults(6)`) e retorna a resposta imediata, sem pré-GET, espera posterior, retry ou cooldown. O botão de lote tenta os três valores nessa ordem sem aguardar o reboot entre eles. O reset de fábrica pode apagar IP, comunidade e demais configurações. O App não envia SET para OIDs privados descobertos automaticamente.
 
 ## Entidades MQTT
 
@@ -33,4 +33,4 @@ O diretório `/data` é persistente e deve entrar no backup do Home Assistant. A
 
 ## Limitações homologadas
 
-Na unidade real atual, o OID `prtGeneralReset` não foi confirmado por GET, portanto o teste normal permanece bloqueado. Os testes forçados podem ser usados com acesso físico disponível, comunidade SNMP de escrita e autorização salva; eles não garantem que o firmware aceite os comandos. A opção 6 pode exigir reconfiguração física após o envio. Wake-on-LAN não é presumido.
+Na unidade real atual, o OID `prtGeneralReset` não foi confirmado por GET, mas o Laboratório permite o envio direto dos três valores padronizados com comunidade SNMP de escrita e autorização salva; o retorno imediato não comprova que o firmware executou o reset. A opção 6 pode exigir reconfiguração física após o envio. Wake-on-LAN não é presumido.

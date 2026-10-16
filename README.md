@@ -20,7 +20,7 @@ O App não exige edição de `configuration.yaml`, não depende de Wi-Fi ou nuve
 - EWS: GET somente leitura da página principal, com indicação de fonte e disponibilidade.
 - MQTT Discovery: dispositivo único com identificadores estáveis e disponibilidade separada do App.
 - IP vazio: painel funcional, monitoramento suspenso e nenhuma entidade de impressora criada.
-- Reboot/reset: teste normal e botões forçados opcionais para os três valores fixos do Printer-MIB, com confirmação adicional para NVRAM e padrões de fábrica.
+- Reboot/reset: Laboratório SNMP com o catálogo do `prtGeneralReset.1`, sondagem GET/GETNEXT do Printer-MIB e da raiz privada HP, e botões de envio direto para `powerCycleReset(4)`, `resetToNVRAM(5)` e `resetToFactoryDefaults(6)`. Cada clique faz um único SET e mostra o retorno imediato, sem esperar o reboot, retry ou cooldown.
 - Wake: indisponível; Wake-on-LAN não é presumido.
 
 Leia [`tecnohead_hp/README.md`](tecnohead_hp/README.md), [`tecnohead_hp/DOCS.md`](tecnohead_hp/DOCS.md) e [`docs/RELATORIO_CAPACIDADES.md`](docs/RELATORIO_CAPACIDADES.md) para detalhes, segurança, rollback e limitações.

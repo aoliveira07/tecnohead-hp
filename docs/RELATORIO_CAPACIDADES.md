@@ -16,7 +16,7 @@
 | Erros | `hrPrinterDetectedErrorState.1` preservado como bits/raw | Pendente de interpretação física |
 | Consumíveis | Descoberta dinâmica por tipo, descrição, unidade, capacidade, nível e cor | Cinco itens observados em dump público, não nesta unidade |
 | MQTT Discovery | Device estável, entidades de leitura e disponibilidade | Implementado; requer broker/HA |
-| Reboot/reset | Teste normal com pré-verificação GET e testes forçados opcionais de `powerCycleReset(4)`, `resetToNVRAM(5)` ou `resetToFactoryDefaults(6)`; frases de confirmação, sem retry | Nenhuma dessas escritas foi executada na unidade real nesta versão |
+| Reboot/reset | Laboratório com catálogo fixo do `prtGeneralReset.1`, sondagem GET/GETNEXT, envio direto de um SET por clique e lote opcional dos valores 4, 5 e 6; sem espera posterior, retry ou cooldown | Nenhuma dessas escritas foi executada na unidade real nesta versão |
 | Wake | Nenhum botão; nenhum pacote presumido | Não homologado |
 
 ## OIDs consultados em modo somente leitura
@@ -29,6 +29,7 @@
 - `1.3.6.1.2.1.25.3.5.1.2.1` — flags de erro.
 - `1.3.6.1.2.1.43.11.1.1.*` — tabela de suprimentos.
 - `1.3.6.1.2.1.43.5.1.1.3.1` — candidato a reset, consultado apenas com GET.
+- `1.3.6.1.4.1.11` — raiz privada HP, sondada apenas com GET/GETNEXT para inventário; nenhum OID de reboot da M176n foi confirmado nessa árvore.
 
 ## Pendências para homologação
 
@@ -36,4 +37,4 @@
 2. Testar SNMPv1 e EWS a partir do Home Assistant.
 3. Confirmar estrutura real da página EWS e anonimizar fixtures.
 4. Confirmar entidade e disponibilidade no MQTT Discovery.
-5. O painel oferece a porta normal e três botões de homologação forçada. As escritas aceitas são somente `powerCycleReset(4)`, `resetToNVRAM(5)` e `resetToFactoryDefaults(6)`; as opções 5/6 exigem frases de confirmação distintas, comunidade de escrita, autorização explícita, estado ocioso, cooldown e sem retry. Nenhum OID/valor arbitrário é aceito.
+5. O painel oferece três botões de envio direto e um lote opcional. As escritas aceitas são somente `powerCycleReset(4)`, `resetToNVRAM(5)` e `resetToFactoryDefaults(6)`; elas exigem comunidade de escrita e autorização salva, enviam SETs fixos e retornam imediatamente. Não há pré-GET, espera posterior, retry ou cooldown. Nenhum OID/valor arbitrário é aceito.

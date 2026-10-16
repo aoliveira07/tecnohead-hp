@@ -1,10 +1,9 @@
-"""Small SNMPv1 client with a single, tightly-scoped reset operation.
+"""Small SNMPv1 client with a fixed, tightly-scoped reset catalog.
 
 Discovery and monitoring use only GET and GETNEXT. The only write supported by
-this module is the explicitly named ``power_cycle_reset`` operation for the
-Printer-MIB ``prtGeneralReset`` object. It is deliberately not a generic SET
-API: the OID and value are fixed, and the caller must perform its own
-capability and state checks before invoking it.
+this module exposes only the named reset operations for the Printer-MIB
+``prtGeneralReset`` object. It is deliberately not a generic SET API: the OID
+and values are fixed, and the caller chooses one catalog entry explicitly.
 """
 
 from __future__ import annotations
