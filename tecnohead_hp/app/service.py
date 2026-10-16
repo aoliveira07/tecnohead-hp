@@ -179,8 +179,6 @@ class MonitorService:
             return {"ok": False, "status": "blocked", "command_sent": False, "message": "O teste de reboot SNMP está desabilitado nas configurações."}
         if not config.get("snmp_community"):
             return {"ok": False, "status": "blocked", "command_sent": False, "message": "Configure a comunidade SNMPv1 de leitura para fazer a pré-verificação."}
-        if not config.get("snmp_write_community"):
-            return {"ok": False, "status": "blocked", "command_sent": False, "message": "Configure a comunidade SNMPv1 de escrita somente para o teste supervisionado."}
 
         read_client = SnmpV1Client(
             config["ip"],
@@ -220,6 +218,8 @@ class MonitorService:
                 "message": "O OID de reboot respondeu com tipo ou estado incompatível; nenhum SNMP SET foi enviado.",
                 "value": probe.value,
             }
+        if not config.get("snmp_write_community"):
+            return {"ok": False, "status": "blocked", "command_sent": False, "message": "Configure a comunidade SNMPv1 de escrita somente para o teste supervisionado."}
 
         before = collect(config)
         if not before.online:
