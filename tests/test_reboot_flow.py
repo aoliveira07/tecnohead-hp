@@ -55,6 +55,29 @@ class RebootFlowTests(unittest.TestCase):
         fake_client.get.assert_not_called()
         fake_client.power_cycle_reset.assert_called_once_with()
 
+    def test_destructive_modes_require_exact_phrase_and_use_fixed_method(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = SettingsStore(Path(directory) / "config.json")
+            store.save(
+                {
+                    "ip": "192.168.0.55",
+                    "snmp_write_community": "write",
+                    "allow_reset_test": True,
+                }
+            )
+            service = MonitorService(store)
+            service._state.update({"configured": True, "online": True, "state": "idle", "state_label": "Ociosa"})
+            fake_client = MagicMock()
+            fake_client.reset_to_factory_defaults.return_value = [SnmpValue(PRT_GENERAL_RESET_OID, 0x02, 6)]
+            with patch("service.SnmpV1Client", return_value=fake_client):
+                blocked = service.test_reset("factory", "wrong")
+                result = service.test_reset("factory", "RESET_FACTORY_DEFAULTS")
+
+        self.assertFalse(blocked["command_sent"])
+        self.assertEqual(result["status"], "sent")
+        fake_client.reset_to_factory_defaults.assert_called_once_with()
+        fake_client.reset_to_nvram.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

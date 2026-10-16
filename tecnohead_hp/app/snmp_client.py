@@ -221,8 +221,8 @@ class SnmpV1Client:
         packet = _tlv(0x30, _tlv(0x02, _encode_integer(0)) + _tlv(0x04, self.community.encode()) + pdu)
         return self._exchange(packet)
 
-    def power_cycle_reset(self) -> list[SnmpValue]:
-        """Send exactly one ``powerCycleReset(4)`` request.
+    def _send_reset_value(self, reset_value: int) -> list[SnmpValue]:
+        """Send exactly one fixed Printer-MIB reset request.
 
         This method has no retry path by design. A lost response can mean the
         printer rebooted successfully, so repeating the request could trigger
@@ -230,8 +230,10 @@ class SnmpV1Client:
         reports an inconclusive result when necessary.
         """
 
+        if reset_value not in {4, 5, 6}:
+            raise ValueError("Valor de reset não permitido.")
         self._request_id = (self._request_id + 1) & 0x7FFFFFFF
-        value = _tlv(0x02, _encode_integer(POWER_CYCLE_RESET_VALUE))
+        value = _tlv(0x02, _encode_integer(reset_value))
         varbind = _tlv(0x30, _encode_oid(PRT_GENERAL_RESET_OID) + value)
         pdu = _tlv(
             0xA3,
@@ -259,6 +261,21 @@ class SnmpV1Client:
         if error_status:
             raise SnmpCommandError(f"SNMP error-status={error_status}", command_sent=command_sent)
         return values
+
+    def power_cycle_reset(self) -> list[SnmpValue]:
+        """Send exactly one ``powerCycleReset(4)`` request."""
+
+        return self._send_reset_value(POWER_CYCLE_RESET_VALUE)
+
+    def reset_to_nvram(self) -> list[SnmpValue]:
+        """Send exactly one ``resetToNVRAM(5)`` request."""
+
+        return self._send_reset_value(5)
+
+    def reset_to_factory_defaults(self) -> list[SnmpValue]:
+        """Send exactly one ``resetToFactoryDefaults(6)`` request."""
+
+        return self._send_reset_value(6)
 
     def get(self, oid: str) -> SnmpValue | None:
         values = self._request(0xA0, [oid])

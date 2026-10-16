@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.0.11] - 2026-10-16
+
+- Adicionados botões separados para `resetToNVRAM(5)` e `resetToFactoryDefaults(6)`.
+- Cada opção exige frase de confirmação, comunidade de escrita e autorização salva; os comandos são fixos, enviados uma vez e sem retry.
+- O reset de fábrica exibe aviso de que pode apagar IP, comunidade e demais configurações.
+
 ## [1.0.10] - 2026-10-16
 
 - Adicionado botão de homologação forçada para enviar uma única solicitação fixa `powerCycleReset(4)` sem pré-validar a presença do OID.

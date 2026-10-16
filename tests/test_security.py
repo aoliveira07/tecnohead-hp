@@ -9,8 +9,9 @@ class SecurityTests(unittest.TestCase):
         self.assertIn("PRT_GENERAL_RESET_OID", text)
         self.assertIn("POWER_CYCLE_RESET_VALUE = 4", text)
         self.assertIn("def power_cycle_reset", text)
-        self.assertNotIn("resetToNVRAM", text)
-        self.assertNotIn("resetToFactoryDefaults", text)
+        self.assertIn("def reset_to_nvram", text)
+        self.assertIn("def reset_to_factory_defaults", text)
+        self.assertIn("if reset_value not in {4, 5, 6}", text)
         self.assertNotIn("def set", text.lower())
 
     def test_no_functional_remote_command_entities(self):

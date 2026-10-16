@@ -16,6 +16,13 @@ from settings import SettingsError, SettingsStore
 from snmp_client import POWER_CYCLE_RESET_VALUE, PRT_GENERAL_RESET_OID, SnmpCommandError, SnmpError, SnmpV1Client, ticks_to_seconds
 
 
+RESET_ACTIONS: dict[str, dict[str, Any]] = {
+    "power_cycle": {"value": 4, "label": "powerCycleReset(4)", "method": "power_cycle_reset", "confirmation": None},
+    "nvram": {"value": 5, "label": "resetToNVRAM(5)", "method": "reset_to_nvram", "confirmation": "RESET_NVRAM"},
+    "factory": {"value": 6, "label": "resetToFactoryDefaults(6)", "method": "reset_to_factory_defaults", "confirmation": "RESET_FACTORY_DEFAULTS"},
+}
+
+
 class MonitorService:
     def __init__(self, store: SettingsStore | None = None) -> None:
         self.store = store or SettingsStore()
@@ -157,16 +164,17 @@ class MonitorService:
         with self._lock:
             self._last_reset_command_at = None
 
-    def _force_reboot(self, config: dict[str, Any]) -> dict[str, Any]:
-        """Send the fixed power-cycle request without the optional-OID probe."""
+    def _force_reset(self, config: dict[str, Any], mode: str = "power_cycle") -> dict[str, Any]:
+        """Send one fixed reset request without the optional-OID probe."""
 
+        action = RESET_ACTIONS[mode]
         if not config.get("snmp_write_community"):
-            return {"ok": False, "status": "blocked", "command_sent": False, "message": "Configure a comunidade SNMPv1 de escrita somente para o teste forçado."}
+            return {"ok": False, "status": "blocked", "command_sent": False, "message": "Configure a comunidade SNMPv1 de escrita somente para o teste."}
         current = self.status()
         if not current.get("online"):
-            return {"ok": False, "status": "blocked", "command_sent": False, "message": "A impressora não está online para o teste forçado."}
+            return {"ok": False, "status": "blocked", "command_sent": False, "message": "A impressora não está online para o teste."}
         if current.get("state") in {"printing", "warmup", "error", "unknown"}:
-            return {"ok": False, "status": "blocked", "command_sent": False, "message": f"Teste forçado bloqueado no estado atual: {current.get('state_label', 'desconhecido')}."}
+            return {"ok": False, "status": "blocked", "command_sent": False, "message": f"Teste bloqueado no estado atual: {current.get('state_label', 'desconhecido')}."}
         cooldown = self._claim_reset_slot()
         if cooldown:
             return cooldown
@@ -182,7 +190,7 @@ class MonitorService:
         request_error: str | None = None
         response_values = []
         try:
-            response_values = write_client.power_cycle_reset()
+            response_values = getattr(write_client, action["method"])()
             command_sent = True
         except SnmpCommandError as exc:
             command_sent = exc.command_sent
@@ -192,29 +200,30 @@ class MonitorService:
 
         if not command_sent:
             self._release_reset_slot()
-            self._log(f"Teste forçado de reboot não enviado: {request_error or 'falha antes do envio'}")
-            return {"ok": False, "status": "send_failed", "command_sent": False, "message": "O comando forçado não foi enviado à impressora.", "detail": request_error}
+            self._log(f"Teste {action['label']} não enviado: {request_error or 'falha antes do envio'}")
+            return {"ok": False, "status": "send_failed", "command_sent": False, "message": "O comando não foi enviado à impressora.", "detail": request_error}
 
         response_ack = bool(
             response_values
             and response_values[0].oid == PRT_GENERAL_RESET_OID
             and response_values[0].tag == 0x02
-            and response_values[0].value == POWER_CYCLE_RESET_VALUE
+            and response_values[0].value == action["value"]
         )
-        self._log("Teste forçado enviado uma única vez: powerCycleReset(4); confirmação posterior não foi aguardada.")
+        self._log(f"Teste {action['label']} enviado uma única vez; confirmação posterior não foi aguardada.")
+        warning = " A impressora pode perder IP, comunidade e demais configurações." if mode == "factory" else ""
         if response_ack:
             return {
                 "ok": True,
                 "status": "sent",
                 "command_sent": True,
-                "message": "powerCycleReset(4) enviado uma única vez. Atualize o painel depois que a impressora retornar para verificar o tempo de atividade.",
+                "message": f"{action['label']} enviado uma única vez. Atualize o painel depois para verificar o tempo de atividade.{warning}",
                 "response_ack": True,
             }
         return {
             "ok": False,
             "status": "sent_inconclusive",
             "command_sent": True,
-            "message": "O pacote foi enviado uma única vez, mas a impressora não confirmou a resposta. Não haverá retry; verifique o retorno e o tempo de atividade.",
+            "message": f"O pacote {action['label']} foi enviado uma única vez, mas a impressora não confirmou a resposta. Não haverá retry; verifique o retorno e o tempo de atividade.{warning}",
             "response_ack": False,
             "request_error": request_error,
         }
@@ -259,7 +268,7 @@ class MonitorService:
         if not config.get("allow_reset_test"):
             return {"ok": False, "status": "blocked", "command_sent": False, "message": "O teste de reboot SNMP está desabilitado nas configurações."}
         if force:
-            return self._force_reboot(config)
+            return self._force_reset(config)
         if not config.get("snmp_community"):
             return {"ok": False, "status": "blocked", "command_sent": False, "message": "Configure a comunidade SNMPv1 de leitura para fazer a pré-verificação."}
 
@@ -367,6 +376,21 @@ class MonitorService:
             "verification": verification,
             "request_error": request_error,
         }
+
+    def test_reset(self, mode: str, confirmation: str = "") -> dict[str, Any]:
+        """Run an explicitly confirmed fixed NVRAM or factory reset request."""
+
+        action = RESET_ACTIONS.get(mode)
+        if action is None or mode == "power_cycle":
+            return {"ok": False, "status": "blocked", "command_sent": False, "message": "Modo de reset não permitido nesta rota."}
+        if confirmation != action["confirmation"]:
+            return {"ok": False, "status": "blocked", "command_sent": False, "message": f"Digite exatamente {action['confirmation']} para autorizar {action['label']}."}
+        config = self.store.get()
+        if not config.get("ip"):
+            return {"ok": False, "status": "blocked", "command_sent": False, "message": "IP da impressora não configurado."}
+        if not config.get("allow_reset_test"):
+            return {"ok": False, "status": "blocked", "command_sent": False, "message": "O teste de reboot SNMP está desabilitado nas configurações."}
+        return self._force_reset(config, mode)
 
     def discover(self) -> dict[str, Any]:
         result = self.test_connection()
