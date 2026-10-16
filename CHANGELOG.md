@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.0.2] - 2026-10-16
+
+- Corrigida a API do painel Ingress para usar caminhos relativos; o painel não tenta mais acessar `/api/*` na raiz do Home Assistant.
+
 ## [1.0.1] - 2026-10-16
 
 - Adicionada validação CI dos testes, sintaxe e build do container.
