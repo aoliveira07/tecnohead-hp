@@ -1,8 +1,8 @@
 name: "TecnoHead HP"
-version: "1.0.12"
+version: "1.0.14"
 slug: "tecnohead_hp"
 description: >-
-  Monitoramento local da HP Color LaserJet Pro MFP M176n por SNMPv1/EWS,
+  Monitoramento local da HP Color LaserJet Pro MFP M176n por SNMPv1,
   com MQTT Discovery e painel Ingress para configuração do IP.
 url: "https://github.com/aoliveira07/tecnohead-hp"
 arch:
@@ -18,6 +18,7 @@ panel_icon: mdi:printer
 panel_admin: true
 services:
   - mqtt:want
+homeassistant_api: true
 map:
   - data:rw
 stage: experimental

@@ -13,7 +13,6 @@ class FakeClient:
             printer_state.OID_MODEL: SnmpValue(printer_state.OID_MODEL, 0x04, "HP Color LaserJet Pro MFP M176n"),
             printer_state.OID_PRINTER_STATUS: SnmpValue(printer_state.OID_PRINTER_STATUS, 0x02, 3),
             printer_state.OID_ERROR_FLAGS: SnmpValue(printer_state.OID_ERROR_FLAGS, 0x04, "\x00"),
-            printer_state.OID_RESET_CANDIDATE: SnmpValue(printer_state.OID_RESET_CANDIDATE, 0x80, None),
         }
         self.rows = {
             printer_state.SUPPLY_COLUMNS["type"]: [("1", 3), ("2", 3), ("3", 3), ("4", 3), ("5", 9)],
@@ -50,7 +49,7 @@ class PartialClient(FakeClient):
 
 class SupplyTests(unittest.TestCase):
     def test_dynamic_supply_mapping(self):
-        config = {"ip": "192.168.1.20", "snmp_community": "ro", "snmp_port": 161, "snmp_timeout": 1, "snmp_retries": 1, "use_ews": False}
+        config = {"ip": "192.168.1.20", "snmp_community": "ro", "snmp_port": 161, "snmp_timeout": 1, "snmp_retries": 1}
         with patch.object(printer_state, "SnmpV1Client", FakeClient):
             result = printer_state.collect(config)
         self.assertTrue(result.online)
@@ -60,7 +59,7 @@ class SupplyTests(unittest.TestCase):
         self.assertEqual(result.uptime_seconds, 120)
 
     def test_unsupported_optional_oid_does_not_abort_collection(self):
-        config = {"ip": "192.168.1.20", "snmp_community": "ro", "snmp_port": 161, "snmp_timeout": 1, "snmp_retries": 1, "use_ews": False}
+        config = {"ip": "192.168.1.20", "snmp_community": "ro", "snmp_port": 161, "snmp_timeout": 1, "snmp_retries": 1}
         with patch.object(printer_state, "SnmpV1Client", PartialClient):
             result = printer_state.collect(config)
         self.assertTrue(result.online)

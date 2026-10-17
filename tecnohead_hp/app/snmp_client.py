@@ -1,10 +1,4 @@
-"""Small SNMPv1 client with a fixed, tightly-scoped reset catalog.
-
-Discovery and monitoring use only GET and GETNEXT. The only write supported by
-this module exposes only the named reset operations for the Printer-MIB
-``prtGeneralReset`` object. It is deliberately not a generic SET API: the OID
-and values are fixed, and the caller chooses one catalog entry explicitly.
-"""
+"""Small read-only SNMPv1 client used by the monitor."""
 
 from __future__ import annotations
 
@@ -16,18 +10,6 @@ from typing import Any, Iterable
 
 class SnmpError(RuntimeError):
     """An SNMP operation failed."""
-
-
-class SnmpCommandError(SnmpError):
-    """A one-shot command failed after it may have reached the device."""
-
-    def __init__(self, message: str, *, command_sent: bool) -> None:
-        super().__init__(message)
-        self.command_sent = command_sent
-
-
-PRT_GENERAL_RESET_OID = "1.3.6.1.2.1.43.5.1.1.3.1"
-POWER_CYCLE_RESET_VALUE = 4
 
 
 @dataclass(frozen=True)
@@ -219,62 +201,6 @@ class SnmpV1Client:
         )
         packet = _tlv(0x30, _tlv(0x02, _encode_integer(0)) + _tlv(0x04, self.community.encode()) + pdu)
         return self._exchange(packet)
-
-    def _send_reset_value(self, reset_value: int) -> list[SnmpValue]:
-        """Send exactly one fixed Printer-MIB reset request.
-
-        This method has no retry path by design. A lost response can mean the
-        printer rebooted successfully, so repeating the request could trigger
-        a second reboot. The service layer performs read-only verification and
-        reports an inconclusive result when necessary.
-        """
-
-        if reset_value not in {4, 5, 6}:
-            raise ValueError("Valor de reset não permitido.")
-        self._request_id = (self._request_id + 1) & 0x7FFFFFFF
-        value = _tlv(0x02, _encode_integer(reset_value))
-        varbind = _tlv(0x30, _encode_oid(PRT_GENERAL_RESET_OID) + value)
-        pdu = _tlv(
-            0xA3,
-            _tlv(0x02, _encode_integer(self._request_id))
-            + _tlv(0x02, _encode_integer(0))
-            + _tlv(0x02, _encode_integer(0))
-            + _tlv(0x30, varbind),
-        )
-        packet = _tlv(0x30, _tlv(0x02, _encode_integer(0)) + _tlv(0x04, self.community.encode()) + pdu)
-
-        command_sent = False
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-                sock.settimeout(self.timeout)
-                sock.sendto(packet, (self.host, self.port))
-                command_sent = True
-                response, _ = sock.recvfrom(65535)
-        except OSError as exc:
-            raise SnmpCommandError(f"Falha ao enviar/receber o reboot SNMP: {type(exc).__name__}.", command_sent=command_sent) from exc
-
-        try:
-            error_status, values = _parse_response(response)
-        except SnmpError as exc:
-            raise SnmpCommandError(str(exc), command_sent=command_sent) from exc
-        if error_status:
-            raise SnmpCommandError(f"SNMP error-status={error_status}", command_sent=command_sent)
-        return values
-
-    def power_cycle_reset(self) -> list[SnmpValue]:
-        """Send exactly one ``powerCycleReset(4)`` request."""
-
-        return self._send_reset_value(POWER_CYCLE_RESET_VALUE)
-
-    def reset_to_nvram(self) -> list[SnmpValue]:
-        """Send exactly one ``resetToNVRAM(5)`` request."""
-
-        return self._send_reset_value(5)
-
-    def reset_to_factory_defaults(self) -> list[SnmpValue]:
-        """Send exactly one ``resetToFactoryDefaults(6)`` request."""
-
-        return self._send_reset_value(6)
 
     def get(self, oid: str) -> SnmpValue | None:
         values = self._request(0xA0, [oid])

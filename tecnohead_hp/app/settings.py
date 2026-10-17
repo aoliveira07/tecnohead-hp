@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import copy
+import datetime as dt
 import ipaddress
 import json
 import os
+import re
 import tempfile
 import threading
 from pathlib import Path
@@ -15,33 +17,20 @@ from typing import Any
 DEFAULTS: dict[str, Any] = {
     "printer_name": "HP M176n",
     "ip": "",
-    "dns": "",
     "snmp_port": 161,
     "snmp_version": "v1",
     "snmp_community": "",
-    "snmp_write_community": "",
     "snmp_timeout": 3.0,
     "snmp_retries": 1,
     "poll_interval": 60,
-    "use_ews": True,
-    "ews_scheme": "http",
-    "ews_port": 80,
-    "ews_username": "",
-    "ews_password": "",
     "mqtt_auto": True,
-    "mqtt_host": "",
-    "mqtt_port": 1883,
-    "mqtt_username": "",
-    "mqtt_password": "",
-    "mqtt_tls": False,
+    "tasmota_entity": "",
+    "tasmota_off_time": "",
     "alertas_suprimentos": False,
-    "allow_remote_control": False,
-    "allow_restart": False,
-    "allow_wake": False,
-    "allow_reset_test": False,
 }
 
-SECRET_FIELDS = {"snmp_community", "snmp_write_community", "ews_password", "mqtt_password"}
+SECRET_FIELDS = {"snmp_community"}
+PUBLIC_FIELDS = {"printer_name", "ip", "snmp_community", "tasmota_entity", "tasmota_off_time"}
 DATA_DIR = Path(os.environ.get("TECNHEAD_DATA_DIR", "/data"))
 CONFIG_PATH = DATA_DIR / "config.json"
 
@@ -69,27 +58,35 @@ def validate(values: dict[str, Any]) -> dict[str, Any]:
         result["ip"] = str(address)
     else:
         result["ip"] = ""
-    result["dns"] = str(result["dns"]).strip()
     result["snmp_version"] = "v1"
     result["snmp_port"] = _bounded_int(result["snmp_port"], 1, 65535, "Porta SNMP")
     result["snmp_timeout"] = _bounded_float(result["snmp_timeout"], 0.1, 30.0, "Timeout SNMP")
     result["snmp_retries"] = _bounded_int(result["snmp_retries"], 1, 3, "Tentativas SNMP")
     result["poll_interval"] = _bounded_int(result["poll_interval"], 30, 86400, "Intervalo de consulta")
-    result["ews_scheme"] = "http" if str(result["ews_scheme"]).lower() != "https" else "https"
-    result["ews_port"] = _bounded_int(result["ews_port"], 1, 65535, "Porta EWS")
-    result["mqtt_port"] = _bounded_int(result["mqtt_port"], 1, 65535, "Porta MQTT")
     result["snmp_community"] = str(result["snmp_community"])
-    result["snmp_write_community"] = str(result["snmp_write_community"])
-    result["ews_username"] = str(result["ews_username"])
-    result["ews_password"] = str(result["ews_password"])
-    result["mqtt_host"] = str(result["mqtt_host"]).strip()
-    result["mqtt_username"] = str(result["mqtt_username"])
-    result["mqtt_password"] = str(result["mqtt_password"])
-    for key in {"use_ews", "mqtt_auto", "mqtt_tls", "alertas_suprimentos", "allow_remote_control", "allow_restart", "allow_wake", "allow_reset_test"}:
+    result["mqtt_auto"] = True
+    result["tasmota_entity"] = _validate_entity_id(result["tasmota_entity"])
+    result["tasmota_off_time"] = _validate_time(result["tasmota_off_time"])
+    for key in {"alertas_suprimentos"}:
         result[key] = _as_bool(result[key])
-    if result["allow_restart"] or result["allow_wake"]:
-        raise SettingsError("Reiniciar e Acordar permanecem bloqueados até homologação presencial.")
     return result
+
+
+def _validate_entity_id(value: Any) -> str:
+    entity_id = str(value or "").strip().lower()
+    if entity_id and not re.fullmatch(r"[a-z0-9_]+\.[a-z0-9_]+", entity_id):
+        raise SettingsError("Entidade Tasmota inválida: use o formato domínio.entidade.")
+    return entity_id
+
+
+def _validate_time(value: Any) -> str:
+    schedule = str(value or "").strip()
+    if not schedule:
+        return ""
+    try:
+        return dt.datetime.strptime(schedule, "%H:%M").strftime("%H:%M")
+    except ValueError as exc:
+        raise SettingsError("Horário inválido: use o formato HH:MM.") from exc
 
 
 def _bounded_int(value: Any, minimum: int, maximum: int, label: str) -> int:
@@ -155,7 +152,8 @@ class SettingsStore:
             return self.get()
 
     def public(self) -> dict[str, Any]:
-        values = self.get()
+        current = self.get()
+        values = {key: value for key, value in current.items() if key in PUBLIC_FIELDS}
         for key in SECRET_FIELDS:
-            values[key] = {"configured": bool(values[key])}
+            values[key] = {"configured": bool(current.get(key))}
         return values

@@ -1,4 +1,4 @@
-"""SNMP/EWS collection and normalization for the HP M176n."""
+"""SNMP collection and normalization for the HP M176n."""
 
 from __future__ import annotations
 
@@ -7,7 +7,6 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from ews_client import EwsResult, fetch_ews
 from snmp_client import SnmpError, SnmpValue, SnmpV1Client, ticks_to_seconds
 
 
@@ -17,7 +16,6 @@ OID_MODEL = "1.3.6.1.2.1.25.3.2.1.3.1"
 OID_GENERAL_STATUS = "1.3.6.1.2.1.25.3.2.1.5.1"
 OID_PRINTER_STATUS = "1.3.6.1.2.1.25.3.5.1.1.1"
 OID_ERROR_FLAGS = "1.3.6.1.2.1.25.3.5.1.2.1"
-OID_RESET_CANDIDATE = "1.3.6.1.2.1.43.5.1.1.3.1"
 SUPPLIES_BASE = "1.3.6.1.2.1.43.11.1.1"
 COLORANT_DESC_BASE = "1.3.6.1.2.1.43.12.1.1.4.1"
 
@@ -58,8 +56,6 @@ class CollectionResult:
     error_flags: int | None = None
     error: str | None = None
     supplies: dict[str, dict[str, Any]] = field(default_factory=dict)
-    ews: dict[str, Any] = field(default_factory=dict)
-    reset_oid_present: bool = False
     sources: dict[str, str] = field(default_factory=dict)
     collected_at: str | None = None
 
@@ -74,8 +70,6 @@ class CollectionResult:
             "error_flags": self.error_flags,
             "error": self.error,
             "supplies": self.supplies,
-            "ews": self.ews,
-            "reset_oid_present": self.reset_oid_present,
             "sources": self.sources,
             "collected_at": self.collected_at,
         }
@@ -169,7 +163,7 @@ def collect(config: dict[str, Any]) -> CollectionResult:
     try:
         if client is None:
             raise SnmpError("Comunidade SNMPv1 não configurada.")
-        scalar_oids = [OID_NAME, OID_UPTIME, OID_MODEL, OID_GENERAL_STATUS, OID_PRINTER_STATUS, OID_ERROR_FLAGS, OID_RESET_CANDIDATE]
+        scalar_oids = [OID_NAME, OID_UPTIME, OID_MODEL, OID_GENERAL_STATUS, OID_PRINTER_STATUS, OID_ERROR_FLAGS]
         scalars = _safe_get_many(client, scalar_oids)
         if not scalars:
             raise SnmpError("SNMPv1 não retornou dados de estado.")
@@ -183,7 +177,6 @@ def collect(config: dict[str, Any]) -> CollectionResult:
         if result.error_flags not in (None, 0):
             result.state = "error"
             result.state_label = "Erro"
-        result.reset_oid_present = OID_RESET_CANDIDATE in scalars and not scalars[OID_RESET_CANDIDATE].is_missing
         result.sources.update({"name": "SNMP", "model": "SNMP", "state": "SNMP", "uptime": "SNMP", "errors": "SNMP"})
 
         colorants = {_last_index(item.oid): str(item.value) for item in _safe_walk(client, COLORANT_DESC_BASE)}
@@ -215,22 +208,4 @@ def collect(config: dict[str, Any]) -> CollectionResult:
     except SnmpError as exc:
         result.error = str(exc)
 
-    if config.get("use_ews"):
-        ews: EwsResult = fetch_ews(
-            config["ip"],
-            scheme=config["ews_scheme"],
-            port=config["ews_port"],
-            username=config["ews_username"],
-            password=config["ews_password"],
-            timeout=config["snmp_timeout"],
-        )
-        result.ews = ews.public()
-        if ews.reachable:
-            result.online = True
-            result.sources["ews"] = "EWS"
-            if not result.model and ews.model:
-                result.model = ews.model
-                result.sources["model"] = "EWS"
-        elif not result.error:
-            result.error = ews.error
     return result

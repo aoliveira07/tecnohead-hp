@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.0.14] - 2026-10-16
+
+- Reorganizada a configuração em aba própria com apenas os campos da impressora, SNMPv1 de leitura e rotina opcional Sonoff/Tasmota.
+- Removidos da tela EWS, parâmetros avançados, MQTT manual e testes extras; a rotina diária usa a API do Home Assistant para enviar somente `turn_off`.
+
+## [1.0.13] - 2026-10-16
+
+- Removido o Laboratório de comandos SNMP e todas as rotas, sondagens e escritas de reboot/reset.
+- Removidos os campos de comunidade SNMP de escrita e autorização de comandos do painel e da configuração persistida.
+- Mantido o App em modo somente leitura para monitoramento, EWS, MQTT e tempo de atividade.
+
 ## [1.0.12] - 2026-10-16
 
 - Criado o Laboratório de comandos SNMP no painel, com catálogo do `prtGeneralReset.1` e seus valores 3, 4, 5 e 6.

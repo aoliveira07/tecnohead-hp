@@ -164,16 +164,7 @@ class MqttPublisher:
         self._lock = threading.RLock()
 
     def _resolve(self) -> dict[str, Any] | None:
-        config = self.config_getter()
-        if config.get("mqtt_host"):
-            return {
-                "host": config["mqtt_host"],
-                "port": config["mqtt_port"],
-                "username": config["mqtt_username"],
-                "password": config["mqtt_password"],
-                "ssl": config["mqtt_tls"],
-            }
-        if config.get("mqtt_auto"):
+        if self.config_getter().get("mqtt_auto", True):
             return _supervisor_mqtt()
         return None
 
